@@ -19,7 +19,8 @@ import {
   Tags,
   X,
   Edit2,
-  Check
+  Check,
+  Users
 } from 'lucide-react';
 
 // --- إعدادات قاعدة البيانات السحابية (Firebase) ---
@@ -40,7 +41,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-inventory-app';
 
-// --- البيانات الأساسية (الافتراضية في حال كانت قاعدة البيانات فارغة) ---
+// --- البيانات الأساسية ---
 const DEFAULT_PRODUCTS = ['9000901', '9000902', '9000904', '9000905', '9000906', '9000908', '9000909'];
 
 const DEFAULT_PACKAGES = {
@@ -120,10 +121,15 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [movements, setMovements] = useState([]);
   
-  // حالات المنتجات والبكجات (ديناميكية من السحابة)
+  // حالات المنتجات والبكجات 
   const [products, setProducts] = useState([]);
   const [packages, setPackages] = useState({});
   const [isSettingsLoaded, setIsSettingsLoaded] = useState(false);
+
+  // حالات الصلاحيات
+  const [permissions, setPermissions] = useState({});
+  const [currentUserRole, setCurrentUserRole] = useState('viewer'); // الافتراضي
+  const [isPermissionsLoaded, setIsPermissionsLoaded] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -143,13 +149,40 @@ export default function App() {
         setAuthError(null);
       } else {
         setUser(null);
+        setIsLoading(false);
       }
-      setIsLoading(false); // تم نقل هذه إلى الخارج لتتوقف عجلة التحميل ويظهر تسجيل الدخول
     });
     return () => unsubscribe();
   }, []);
 
-  // 2. جلب الحركات السحابية
+  // 2. جلب صلاحيات المستخدمين
+  useEffect(() => {
+    if (!user) return;
+    const permsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'permissions');
+    
+    const unsubscribe = onSnapshot(permsRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setPermissions(data);
+        // تعيين صلاحية المستخدم الحالي (إذا لم يكن مسجلاً نجعله مشاهد)
+        setCurrentUserRole(data[user.email] || 'viewer');
+      } else {
+        // إذا لم يكن ملف الصلاحيات موجوداً (أول مستخدم)، اجعله مدير النظام فوراً
+        const initialData = { [user.email]: 'admin' };
+        setDoc(permsRef, initialData).catch(console.error);
+        setPermissions(initialData);
+        setCurrentUserRole('admin');
+      }
+      setIsPermissionsLoaded(true);
+    }, (error) => {
+      console.error("خطأ في جلب الصلاحيات:", error);
+      setIsPermissionsLoaded(true);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // 3. جلب الحركات السحابية
   useEffect(() => {
     if (!user) return;
     const movementsCollection = collection(db, 'artifacts', appId, 'public', 'data', 'movements');
@@ -163,7 +196,7 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
-  // 3. جلب وتحديث (المنتجات والبكجات) السحابية
+  // 4. جلب وتحديث (المنتجات والبكجات)
   useEffect(() => {
     if (!user) return;
     const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'definitions');
@@ -174,23 +207,19 @@ export default function App() {
         setProducts(data.products || []);
         setPackages(data.packages || {});
       } else {
-        // إذا لم يكن الملف موجوداً، ننشئه بالبيانات الافتراضية
         setDoc(settingsRef, {
           products: DEFAULT_PRODUCTS,
           packages: DEFAULT_PACKAGES
         }).catch(err => console.error("خطأ في تهيئة الإعدادات:", err));
       }
       setIsSettingsLoaded(true);
-      setIsLoading(false);
     }, (error) => {
       console.error("خطأ في جلب الإعدادات:", error);
-      setIsLoading(false);
     });
 
     return () => unsubscribe();
   }, [user]);
 
-  // دوال مساعدة لحفظ وتعديل المنتجات والبكجات سحابياً
   const updateSettingsInCloud = async (newProducts, newPackages) => {
     if (!user) return;
     setIsSyncing(true);
@@ -491,6 +520,126 @@ export default function App() {
   }, [movementsInPeriod, packages]);
 
   // --- مكونات الواجهة الفرعية ---
+
+  const UsersManagementTab = () => {
+    const [newUserEmail, setNewUserEmail] = useState('');
+    const [newUserRole, setNewUserRole] = useState('viewer');
+
+    const handleAddPermission = async (e) => {
+      e.preventDefault();
+      if(!newUserEmail.trim()) return;
+      const email = newUserEmail.trim().toLowerCase();
+      
+      const newPerms = { ...permissions, [email]: newUserRole };
+      setIsSyncing(true);
+      try {
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'permissions'), newPerms);
+        setNewUserEmail('');
+      } catch(e) { 
+        console.error(e);
+        alert('حدث خطأ أثناء الحفظ');
+      } finally {
+        setIsSyncing(false);
+      }
+    };
+
+    const handleRemovePermission = async (emailToRemove) => {
+      if(emailToRemove === user.email) {
+        alert('لا يمكنك إزالة صلاحياتك كمدير رئيسي!');
+        return;
+      }
+      if(window.confirm(`هل أنت متأكد من إزالة صلاحيات (${emailToRemove})؟ لن يتمكن من رؤية أي صفحات.`)) {
+        const newPerms = { ...permissions };
+        delete newPerms[emailToRemove];
+        setIsSyncing(true);
+        try {
+          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'permissions'), newPerms);
+        } catch(e) { console.error(e); } finally { setIsSyncing(false); }
+      }
+    };
+
+    const roleNames = { 
+      'admin': { title: 'مدير (صلاحيات كاملة)', color: 'bg-indigo-100 text-indigo-700' },
+      'editor': { title: 'موظف (إدخال حركات فقط)', color: 'bg-green-100 text-green-700' },
+      'viewer': { title: 'مشاهد (لوحة التحكم فقط)', color: 'bg-gray-100 text-gray-700' }
+    };
+
+    return (
+      <div className="space-y-6 animate-in fade-in pb-10">
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm relative">
+           {isSyncing && (
+            <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center rounded-xl z-10">
+               <Loader2 className="animate-spin text-blue-600" size={32} />
+            </div>
+           )}
+           <div className="flex items-center gap-3 mb-6 border-b pb-4">
+             <div className="p-3 bg-blue-50 text-blue-600 rounded-lg">
+               <Users size={24} />
+             </div>
+             <div>
+               <h3 className="text-lg font-semibold text-gray-800">إدارة صلاحيات المستخدمين</h3>
+               <p className="text-xs text-gray-500 mt-1">
+                 أضف البريد الإلكتروني للموظف وحدد رتبته. (ملاحظة: يجب أولاً إنشاء حسابه وكلمة مروره في منصة Firebase).
+               </p>
+             </div>
+           </div>
+
+           <form onSubmit={handleAddPermission} className="flex flex-col md:flex-row gap-3 mb-8 bg-gray-50 p-4 rounded-xl border border-gray-200">
+             <div className="flex-1">
+               <label className="block text-xs font-bold text-gray-600 mb-1">البريد الإلكتروني للمستخدم</label>
+               <input type="email" required placeholder="مثال: emp@asparkle.net" className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-sm text-left" dir="ltr"
+                 value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} />
+             </div>
+             <div className="md:w-64">
+               <label className="block text-xs font-bold text-gray-600 mb-1">نوع الصلاحية</label>
+               <select className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold"
+                 value={newUserRole} onChange={e => setNewUserRole(e.target.value)}>
+                 <option value="admin">مدير (صلاحيات كاملة)</option>
+                 <option value="editor">موظف (تسجيل حركات وجرد)</option>
+                 <option value="viewer">مشاهد (لوحة التحكم فقط)</option>
+               </select>
+             </div>
+             <div className="flex items-end">
+               <button type="submit" disabled={isSyncing} className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded font-bold text-sm transition-colors h-[38px]">
+                 تحديد الصلاحية
+               </button>
+             </div>
+           </form>
+
+           <div className="overflow-x-auto border border-gray-200 rounded-xl">
+             <table className="w-full text-right text-sm">
+               <thead className="bg-gray-100 text-gray-600">
+                 <tr>
+                   <th className="p-3 font-bold border-b">البريد الإلكتروني</th>
+                   <th className="p-3 font-bold border-b">الرتبة الممنوحة</th>
+                   <th className="p-3 font-bold border-b text-center">الإجراءات</th>
+                 </tr>
+               </thead>
+               <tbody className="divide-y divide-gray-100">
+                 {Object.entries(permissions).map(([email, role]) => (
+                   <tr key={email} className="hover:bg-gray-50">
+                     <td className="p-3 font-mono text-gray-800" dir="ltr">{email}</td>
+                     <td className="p-3">
+                       <span className={`px-2 py-1 rounded text-xs font-bold ${roleNames[role]?.color || 'bg-gray-100'}`}>
+                         {roleNames[role]?.title || role}
+                       </span>
+                       {email === user.email && <span className="text-[10px] text-blue-500 mr-2">(أنت)</span>}
+                     </td>
+                     <td className="p-3 text-center">
+                       <button onClick={() => handleRemovePermission(email)} className="text-gray-400 hover:text-red-500 transition-colors p-1" title="إزالة الصلاحية">
+                         <Trash2 size={16} />
+                       </button>
+                     </td>
+                   </tr>
+                 ))}
+                 {Object.keys(permissions).length === 0 && <tr><td colSpan="3" className="p-4 text-center text-gray-400">لا توجد صلاحيات معرفة</td></tr>}
+               </tbody>
+             </table>
+           </div>
+        </div>
+      </div>
+    );
+  };
 
   const DefinitionsTab = () => {
     const [newSku, setNewSku] = useState('');
@@ -1194,19 +1343,23 @@ export default function App() {
                         <td className="p-3 font-bold" dir="ltr">{isOut ? '-' : '+'}{mov.quantity}</td>
                         <td className="p-3 font-mono text-xs text-gray-500">{mov.reference || '-'}</td>
                         <td className="p-3 text-center">
-                          {deleteConfirmId === mov.id ? (
-                            <div className="flex items-center justify-center gap-2 animate-in fade-in">
-                              <button onClick={() => deleteMovementFromCloud(mov.id)} className="bg-red-600 hover:bg-red-700 text-white text-xs px-2 py-1 rounded shadow-sm">تأكيد الحذف</button>
-                              <button onClick={() => setDeleteConfirmId(null)} className="bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs px-2 py-1 rounded shadow-sm">إلغاء</button>
-                            </div>
+                          {currentUserRole === 'admin' ? (
+                            deleteConfirmId === mov.id ? (
+                              <div className="flex items-center justify-center gap-2 animate-in fade-in">
+                                <button onClick={() => deleteMovementFromCloud(mov.id)} className="bg-red-600 hover:bg-red-700 text-white text-xs px-2 py-1 rounded shadow-sm">تأكيد الحذف</button>
+                                <button onClick={() => setDeleteConfirmId(null)} className="bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs px-2 py-1 rounded shadow-sm">إلغاء</button>
+                              </div>
+                            ) : (
+                              <button 
+                                onClick={() => setDeleteConfirmId(mov.id)} 
+                                className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded-full hover:bg-red-50"
+                                title="حذف الحركة"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )
                           ) : (
-                            <button 
-                              onClick={() => setDeleteConfirmId(mov.id)} 
-                              className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded-full hover:bg-red-50"
-                              title="حذف الحركة"
-                            >
-                              <Trash2 size={16} />
-                            </button>
+                            <span className="text-xs text-gray-400">-</span>
                           )}
                         </td>
                       </tr>
@@ -1384,7 +1537,7 @@ export default function App() {
     )
   }
 
-  if (isLoading || (user && !isSettingsLoaded)) {
+  if (isLoading || (user && (!isSettingsLoaded || !isPermissionsLoaded))) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-4 text-blue-600 font-sans">
         <Loader2 className="animate-spin" size={48} />
@@ -1452,18 +1605,32 @@ export default function App() {
               <button onClick={() => setActiveTab('dashboard')} className={`px-3 py-2 rounded-md flex items-center gap-2 transition-colors text-sm font-bold ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
                 <LayoutDashboard size={16} /> لوحة التحكم
               </button>
-              <button onClick={() => setActiveTab('movements')} className={`px-3 py-2 rounded-md flex items-center gap-2 transition-colors text-sm font-bold ${activeTab === 'movements' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
-                <ArrowRightLeft size={16} /> الحركات
-              </button>
-              <button onClick={() => setActiveTab('stock')} className={`px-3 py-2 rounded-md flex items-center gap-2 transition-colors text-sm font-bold ${activeTab === 'stock' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
-                <ClipboardList size={16} /> جرد
-              </button>
-              <button onClick={() => setActiveTab('definitions')} className={`px-3 py-2 rounded-md flex items-center gap-2 transition-colors text-sm font-bold ${activeTab === 'definitions' ? 'bg-purple-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
-                <Tags size={16} /> تعريف المنتجات
-              </button>
-              <button onClick={() => setActiveTab('integration')} className={`px-3 py-2 rounded-md flex items-center gap-2 transition-colors text-sm font-bold ${activeTab === 'integration' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
-                <Link2 size={16} /> الربط
-              </button>
+              
+              {(currentUserRole === 'admin' || currentUserRole === 'editor') && (
+                <>
+                  <button onClick={() => setActiveTab('movements')} className={`px-3 py-2 rounded-md flex items-center gap-2 transition-colors text-sm font-bold ${activeTab === 'movements' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
+                    <ArrowRightLeft size={16} /> الحركات
+                  </button>
+                  <button onClick={() => setActiveTab('stock')} className={`px-3 py-2 rounded-md flex items-center gap-2 transition-colors text-sm font-bold ${activeTab === 'stock' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
+                    <ClipboardList size={16} /> جرد
+                  </button>
+                </>
+              )}
+
+              {currentUserRole === 'admin' && (
+                <>
+                  <button onClick={() => setActiveTab('definitions')} className={`px-3 py-2 rounded-md flex items-center gap-2 transition-colors text-sm font-bold ${activeTab === 'definitions' ? 'bg-purple-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
+                    <Tags size={16} /> تعريف المنتجات
+                  </button>
+                  <button onClick={() => setActiveTab('integration')} className={`px-3 py-2 rounded-md flex items-center gap-2 transition-colors text-sm font-bold ${activeTab === 'integration' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
+                    <Link2 size={16} /> الربط
+                  </button>
+                  <button onClick={() => setActiveTab('users')} className={`px-3 py-2 rounded-md flex items-center gap-2 transition-colors text-sm font-bold ${activeTab === 'users' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
+                    <Users size={16} /> الصلاحيات
+                  </button>
+                </>
+              )}
+
               <div className="w-px h-6 bg-slate-700 mx-2"></div>
               <button onClick={handleLogout} className="px-3 py-1.5 rounded-md text-xs font-bold bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-colors border border-red-500/20">
                 تسجيل خروج
@@ -1477,23 +1644,37 @@ export default function App() {
         <button onClick={() => setActiveTab('dashboard')} className={`flex-1 px-4 py-3 text-xs flex justify-center items-center gap-1 whitespace-nowrap ${activeTab === 'dashboard' ? 'border-b-2 border-blue-600 text-blue-600 font-bold' : 'text-gray-500'}`}>
            اللوحة
         </button>
-        <button onClick={() => setActiveTab('movements')} className={`flex-1 px-4 py-3 text-xs flex justify-center items-center gap-1 whitespace-nowrap ${activeTab === 'movements' ? 'border-b-2 border-blue-600 text-blue-600 font-bold' : 'text-gray-500'}`}>
-           الحركات
-        </button>
-        <button onClick={() => setActiveTab('stock')} className={`flex-1 px-4 py-3 text-xs flex justify-center items-center gap-1 whitespace-nowrap ${activeTab === 'stock' ? 'border-b-2 border-blue-600 text-blue-600 font-bold' : 'text-gray-500'}`}>
-           جرد
-        </button>
-        <button onClick={() => setActiveTab('definitions')} className={`flex-1 px-4 py-3 text-xs flex justify-center items-center gap-1 whitespace-nowrap ${activeTab === 'definitions' ? 'border-b-2 border-purple-600 text-purple-600 font-bold' : 'text-gray-500'}`}>
-           تعريف
-        </button>
+        
+        {(currentUserRole === 'admin' || currentUserRole === 'editor') && (
+          <>
+            <button onClick={() => setActiveTab('movements')} className={`flex-1 px-4 py-3 text-xs flex justify-center items-center gap-1 whitespace-nowrap ${activeTab === 'movements' ? 'border-b-2 border-blue-600 text-blue-600 font-bold' : 'text-gray-500'}`}>
+              الحركات
+            </button>
+            <button onClick={() => setActiveTab('stock')} className={`flex-1 px-4 py-3 text-xs flex justify-center items-center gap-1 whitespace-nowrap ${activeTab === 'stock' ? 'border-b-2 border-blue-600 text-blue-600 font-bold' : 'text-gray-500'}`}>
+              جرد
+            </button>
+          </>
+        )}
+
+        {currentUserRole === 'admin' && (
+          <>
+            <button onClick={() => setActiveTab('definitions')} className={`flex-1 px-4 py-3 text-xs flex justify-center items-center gap-1 whitespace-nowrap ${activeTab === 'definitions' ? 'border-b-2 border-purple-600 text-purple-600 font-bold' : 'text-gray-500'}`}>
+              تعريف
+            </button>
+            <button onClick={() => setActiveTab('users')} className={`flex-1 px-4 py-3 text-xs flex justify-center items-center gap-1 whitespace-nowrap ${activeTab === 'users' ? 'border-b-2 border-blue-600 text-blue-600 font-bold' : 'text-gray-500'}`}>
+              صلاحيات
+            </button>
+          </>
+        )}
       </div>
 
       <main className="max-w-full mx-auto px-2 md:px-6 py-6">
         {activeTab === 'dashboard' && renderDashboard()}
-        {activeTab === 'movements' && <MovementForm />}
-        {activeTab === 'stock' && <DailyStockForm />}
-        {activeTab === 'definitions' && <DefinitionsTab />}
-        {activeTab === 'integration' && <IntegrationSettings />}
+        {activeTab === 'movements' && (currentUserRole === 'admin' || currentUserRole === 'editor') && <MovementForm />}
+        {activeTab === 'stock' && (currentUserRole === 'admin' || currentUserRole === 'editor') && <DailyStockForm />}
+        {activeTab === 'definitions' && currentUserRole === 'admin' && <DefinitionsTab />}
+        {activeTab === 'integration' && currentUserRole === 'admin' && <IntegrationSettings />}
+        {activeTab === 'users' && currentUserRole === 'admin' && <UsersManagementTab />}
       </main>
       
       <style dangerouslySetInnerHTML={{__html: `

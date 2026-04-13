@@ -550,6 +550,274 @@ export default function App() {
     return sortedGroups;
   }, [movementsInPeriod, packages]);
 
+  // ======= بداية دالة renderDashboard المفقودة =======
+  const renderDashboard = () => (
+    <div className="space-y-6 animate-in fade-in">
+      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full lg:w-auto">
+          <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg hidden sm:block">
+            <CalendarDays size={24} />
+          </div>
+          
+          <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+            <div>
+              <p className="text-[10px] text-gray-500 font-bold mb-1">فترة التقرير</p>
+              <select 
+                className="border-gray-300 rounded-md border p-1.5 text-sm font-bold bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none w-full sm:w-auto"
+                value={periodType}
+                onChange={(e) => setPeriodType(e.target.value)}
+              >
+                <option value="day">يوم واحد</option>
+                <option value="week">أسبوع</option>
+                <option value="month">شهر</option>
+                <option value="custom">فترة مخصصة</option>
+              </select>
+            </div>
+
+            {periodType === 'custom' && (
+              <div>
+                <p className="text-[10px] text-gray-500 font-bold mb-1">من تاريخ</p>
+                <input 
+                  type="date"
+                  className="border-gray-300 rounded-md border p-1.5 text-sm font-bold bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none w-full sm:w-auto"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+            )}
+
+            <div>
+              <p className="text-[10px] text-gray-500 font-bold mb-1">{periodType === 'custom' ? 'إلى تاريخ' : 'التاريخ'}</p>
+              <input 
+                type="date"
+                className="border-gray-300 rounded-md border p-1.5 text-sm font-bold bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none w-full sm:w-auto"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-4 w-full lg:w-auto justify-between lg:justify-end">
+          <button 
+            onClick={handleExportExcel}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-sm w-full sm:w-auto justify-center"
+          >
+            <Download size={16} />
+            تصدير التقرير (Excel)
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+          <p className="text-xs text-gray-500 mb-1 font-bold">إجمالي مخزون المنتجات</p>
+          <h3 className="text-2xl font-black text-gray-800">{dashboardStats.totalStock}</h3>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+          <p className="text-xs text-gray-500 mb-1 font-bold">بيع المنتجات (للفترة)</p>
+          <h3 className="text-2xl font-black text-blue-600">{dashboardStats.totalSkuSales}</h3>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+          <p className="text-xs text-gray-500 mb-1 font-bold">بيع البكجات (للفترة)</p>
+          <h3 className="text-2xl font-black text-green-600">{dashboardStats.totalPkgSales}</h3>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+          <p className="text-xs text-gray-500 mb-1 font-bold">الرجوعات (للفترة)</p>
+          <h3 className="text-2xl font-black text-red-600">{dashboardStats.totalReturns}</h3>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col">
+          <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
+            <BarChart3 size={18} className="text-blue-600" /> حركة إجمالي المبيعات (آخر 7 أيام)
+          </h3>
+          <div className="flex items-end gap-2 md:gap-4 h-48 pt-6 mt-auto">
+            {trendData.map((d, index) => {
+              const heightPercent = maxSalesInTrend > 0 ? (d.sales / maxSalesInTrend) * 100 : 0;
+              return (
+                <div key={index} className="flex-1 flex flex-col items-center gap-2 group">
+                  <div className="w-full max-w-[40px] bg-blue-50 rounded-t-md relative flex items-end justify-center h-full border-b border-blue-100">
+                    <div 
+                      className="w-full bg-blue-500 rounded-t-md transition-all duration-700 ease-out group-hover:bg-blue-600 shadow-sm" 
+                      style={{ height: `${heightPercent}%`, minHeight: d.sales > 0 ? '4px' : '0' }}
+                    ></div>
+                    <span className="absolute -top-6 text-xs font-bold text-gray-700 opacity-80 group-hover:opacity-100 group-hover:-top-7 transition-all">
+                      {d.sales}
+                    </span>
+                  </div>
+                  <span className="text-[10px] md:text-xs text-gray-500 font-medium truncate w-full text-center" dir="ltr">
+                  {d.date.substring(5)}
+                </span>
+              </div>
+            );
+          })}
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col max-h-[300px] overflow-hidden">
+          <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 shrink-0">
+            <PackageOpen size={18} className="text-purple-600" /> مقارنة أداء القنوات (حسب المنتج)
+          </h3>
+          <div className="flex-1 flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar">
+            {groupedPackagePerformance.length === 0 && <p className="text-sm text-gray-400 text-center mt-10">لا توجد بيانات للفترة المحددة</p>}
+            {groupedPackagePerformance.map((group, gIdx) => {
+              const maxInGroup = Math.max(...group.pkgs.map(p => p.sales), 1);
+              
+              return (
+                <div key={gIdx} className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-100 shrink-0">
+                  <h4 className="text-xs font-black text-slate-700 border-b border-slate-200 pb-2 flex justify-between">
+                    <span>{group.groupName}</span>
+                    <span className="text-[10px] text-slate-500 font-bold bg-white px-2 py-0.5 rounded border">إجمالي: {group.totalSales}</span>
+                  </h4>
+                  <div className="space-y-3">
+                    {group.pkgs.map(pkg => {
+                      const widthPercent = (pkg.sales / maxInGroup) * 100;
+                      const isWinner = pkg.sales === maxInGroup && pkg.sales > 0;
+                      
+                      return (
+                        <div key={pkg.code} className="space-y-1.5">
+                          <div className="flex justify-between text-[11px] font-bold items-center">
+                            <span className={`truncate pr-1 flex items-center gap-1 ${isWinner ? 'text-gray-900' : 'text-gray-600'}`}>
+                              {isWinner && <span title="أفضل قناة" className="text-yellow-500 text-[14px]">🏆</span>}
+                              {pkg.channel}
+                            </span>
+                            <span className="text-gray-800 bg-white px-2 py-0.5 rounded shadow-sm border border-gray-200 text-[10px]">
+                              {pkg.sales} مبيعة
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                            <div 
+                              className={`h-1.5 rounded-full transition-all duration-700 ease-out ${isWinner ? 'bg-gradient-to-l from-yellow-500 to-yellow-400' : 'bg-gradient-to-l from-purple-500 to-purple-300'}`}
+                              style={{ width: `${widthPercent}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="p-3 border-b border-gray-200 bg-slate-800 text-white">
+            <h3 className="font-bold text-sm flex items-center gap-2">
+              <Package size={16} /> تحليل المنتجات الفردية (للفترة: {startDate} إلى {endDate})
+            </h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-right text-xs">
+              <thead className="bg-gray-100 text-gray-600 border-b border-gray-200">
+                <tr>
+                  <th className="p-2 font-bold whitespace-nowrap">SKU</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center">المخزون الحالي</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center text-blue-700">مبيعات فعلية</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center text-red-700">رجوعات/رفض</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center">صافي المبيعات</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center">الحالة</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center">تنبيه</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {products.length === 0 && <tr><td colSpan="7" className="p-4 text-center text-gray-400">لا توجد منتجات معرفة</td></tr>}
+                {products.map(sku => {
+                  const qty = stockAsOfDate[sku] || 0;
+                  const stats = getPeriodItemStats(sku, 'منتج');
+                  const status = qty > 150 ? 'جيد' : (qty > 50 ? 'متوسط' : 'منخفض');
+                  const statusColor = qty > 150 ? 'text-green-600 bg-green-50' : (qty > 50 ? 'text-orange-600 bg-orange-50' : 'text-red-600 bg-red-50');
+                  
+                  return (
+                    <tr key={sku} className="hover:bg-gray-50">
+                      <td className="p-2 font-bold text-gray-800 bg-gray-50 border-l border-gray-100">{sku}</td>
+                      <td className="p-2 text-center font-bold text-gray-700">{qty}</td>
+                      <td className="p-2 text-center font-bold text-blue-600">{stats.sales}</td>
+                      <td className="p-2 text-center font-bold text-red-600">{stats.returns}</td>
+                      <td className="p-2 text-center font-bold text-gray-800">{stats.net}</td>
+                      <td className="p-2 text-center">
+                        <span className={`inline-block px-2 py-1 rounded-md text-[10px] font-bold ${statusColor}`}>
+                          {status}
+                        </span>
+                      </td>
+                      <td className="p-2 text-center">
+                        {qty < 50 && <AlertTriangle size={14} className="text-red-500 inline" />}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="p-3 border-b border-gray-200 bg-indigo-900 text-white">
+            <h3 className="font-bold text-sm flex items-center gap-2">
+              <PackageOpen size={16} /> تحليل البكجات والعروض (للفترة: {startDate} إلى {endDate})
+            </h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-right text-xs">
+              <thead className="bg-gray-100 text-gray-600 border-b border-gray-200">
+                <tr>
+                  <th className="p-2 font-bold whitespace-nowrap">كود البكج</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center">القناة / المشهور</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center">أقصى بيع ممكن</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center text-blue-700">مبيعات فعلية</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center text-red-700">رجوعات/رفض</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center">صافي المبيعات</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center">SKU الحرج</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center">القرار</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {Object.keys(packages).length === 0 && <tr><td colSpan="8" className="p-4 text-center text-gray-400">لا توجد بكجات معرفة</td></tr>}
+                {Object.entries(packageAvailabilityAsOfDate).map(([code, data]) => {
+                  const stats = getPeriodItemStats(code, 'بكج');
+                  const decision = data.max > 150 ? 'أطلق حملات' : (data.max > 50 ? 'احذر' : 'إيقاف/توريد');
+                  const decisionColor = data.max > 150 ? 'text-green-600 bg-green-50' : (data.max > 50 ? 'text-orange-600 bg-orange-50' : 'text-red-600 bg-red-50');
+                  const channel = packages[code]?.channel || '-';
+                  const groupName = packages[code]?.group || '-';
+
+                  return (
+                    <tr key={code} className="hover:bg-gray-50">
+                      <td className="p-2 font-bold text-gray-800 bg-gray-50 border-l border-gray-100">
+                        {code}
+                        <div className="text-[10px] text-gray-400 font-normal truncate max-w-[100px]" title={packages[code]?.name}>{packages[code]?.name}</div>
+                      </td>
+                      <td className="p-2 text-center text-[10px] space-y-1">
+                        <div className="font-bold text-gray-700 bg-gray-100 rounded px-1 truncate max-w-[100px]">{groupName}</div>
+                        <div className="font-bold text-purple-700 bg-purple-50/50 rounded px-1 truncate max-w-[100px]">{channel}</div>
+                      </td>
+                      <td className="p-2 text-center font-black text-indigo-700">{data.max}</td>
+                      <td className="p-2 text-center font-bold text-blue-600">{stats.sales}</td>
+                      <td className="p-2 text-center font-bold text-red-600">{stats.returns}</td>
+                      <td className="p-2 text-center font-bold text-gray-800">{stats.net}</td>
+                      <td className="p-2 text-center text-[10px] font-mono text-red-500 bg-red-50/50 rounded">
+                        {data.max === 0 ? 'نفد' : data.criticalSku}
+                      </td>
+                      <td className="p-2 text-center">
+                        <span className={`inline-block px-2 py-1 rounded-md text-[10px] font-bold whitespace-nowrap ${decisionColor}`}>
+                          {decision}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+  // ======= نهاية الدالة التي كانت مفقودة =======
+
   // --- مكونات الواجهة الفرعية ---
 
   const UsersManagementTab = () => {
@@ -994,7 +1262,7 @@ export default function App() {
       setFormData({ ...formData, quantity: 1, reference: '', note: '', date: todayStr });
     };
 
-    // ميزة قراءة ملف الـ CSV الذكية مع التعرف على الكمية وطريقة الدفع
+    // ميزة قراءة ملف الـ CSV الذكية مع التعرف على الكمية وطريقة الدفع (بدون الكوبونات والمشاهير)
     const handleFileUpload = (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -1036,7 +1304,7 @@ export default function App() {
               if (qtyMatch) qty = parseInt(qtyMatch[1]);
           }
 
-          // خوارزمية ذكية لاكتشاف نوع البكج من النص (مطابقة للصورة المطلوبة)
+          // خوارزمية ذكية لاكتشاف نوع البكج من النص (تعتمد على الصورة المطلوبة)
           let mappedCode = null;
           let mappedLevel = 'بكج';
 

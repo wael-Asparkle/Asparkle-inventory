@@ -316,7 +316,7 @@ export default function App() {
     csvContent += `كود البكج,اسم البكج,أقصى بيع ممكن,مبيعات فعلية,رجوعات/رفض,صافي المبيعات,القرار\n`;
     Object.entries(packageAvailabilityAsOfDate).forEach(([code, data]) => {
       const stats = getDailyItemStats(code, 'بكج');
-      const decision = data.max > 150 ? 'حملات قوية' : (data.max > 50 ? 'بحذر' : 'إيقاف/توريد');
+      const decision = data.max > 150 ? 'أطلق حملات قوية' : (data.max > 50 ? 'احذر' : 'إيقاف/توريد');
       csvContent += `${code},${PACKAGES[code].name},${data.max},${stats.sales},${stats.returns},${stats.net},${decision}\n`;
     });
 

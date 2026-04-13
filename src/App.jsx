@@ -52,14 +52,16 @@ const PACKAGES = {
 };
 
 const MOVEMENT_TYPES = [
-  { id: 'بيع', type: 'out' },
+  { id: 'بيع (دفع إلكتروني)', type: 'out' },
+  { id: 'بيع (تمارا)', type: 'out' },
+  { id: 'بيع (دفع عند الاستلام)', type: 'out' },
+  { id: 'بيع آلي (عبر الربط)', type: 'out'},
   { id: 'مرتجع', type: 'in' },
   { id: 'رفض استلام - رجوع للمخزون', type: 'in' },
   { id: 'تلف', type: 'out' },
   { id: 'تعديل يدوي (نقص)', type: 'out' },
   { id: 'تعديل يدوي (زيادة)', type: 'in' },
-  { id: 'دخول بضاعة', type: 'in' },
-  { id: 'بيع آلي (عبر الربط)', type: 'out'}
+  { id: 'دخول بضاعة', type: 'in' }
 ];
 
 export default function App() {
@@ -265,7 +267,8 @@ export default function App() {
     let totalReturns = 0;
 
     movementsOnDate.forEach(m => {
-      const isSale = m.type === 'بيع' || m.type === 'بيع آلي (عبر الربط)';
+      // تم التحديث هنا للتعرف على جميع أنواع المبيعات الجديدة
+      const isSale = m.type.includes('بيع');
       const isReturn = m.type === 'مرتجع' || m.type.includes('رفض استلام');
 
       if (isSale && m.level === 'منتج') totalSkuSales += parseInt(m.quantity);
@@ -281,7 +284,8 @@ export default function App() {
     let returns = 0;
     movementsOnDate.forEach(m => {
       if (m.code === code && m.level === level) {
-        const isSale = m.type === 'بيع' || m.type === 'بيع آلي (عبر الربط)';
+        // تم التحديث هنا للتعرف على جميع أنواع المبيعات الجديدة
+        const isSale = m.type.includes('بيع');
         const isReturn = m.type === 'مرتجع' || m.type.includes('رفض استلام');
         if (isSale) sales += parseInt(m.quantity);
         if (isReturn) returns += parseInt(m.quantity);
@@ -316,7 +320,7 @@ export default function App() {
     csvContent += `كود البكج,اسم البكج,أقصى بيع ممكن,مبيعات فعلية,رجوعات/رفض,صافي المبيعات,القرار\n`;
     Object.entries(packageAvailabilityAsOfDate).forEach(([code, data]) => {
       const stats = getDailyItemStats(code, 'بكج');
-      const decision = data.max > 150 ? 'أطلق حملات قوية' : (data.max > 50 ? 'احذر' : 'إيقاف/توريد');
+      const decision = data.max > 150 ? 'أطلق حملات' : (data.max > 50 ? 'احذر' : 'إيقاف/توريد');
       csvContent += `${code},${PACKAGES[code].name},${data.max},${stats.sales},${stats.returns},${stats.net},${decision}\n`;
     });
 
@@ -335,7 +339,8 @@ export default function App() {
     return last7Dates.map(d => {
       let dailySales = 0;
       movements.forEach(m => {
-        if (m.date === d && (m.type === 'بيع' || m.type === 'بيع آلي (عبر الربط)')) {
+        // تم التحديث هنا للتعرف على جميع أنواع المبيعات الجديدة
+        if (m.date === d && m.type.includes('بيع')) {
           dailySales += parseInt(m.quantity);
         }
       });
@@ -350,34 +355,58 @@ export default function App() {
   const renderDashboard = () => (
     <div className="space-y-6 animate-in fade-in">
       
-      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full lg:w-auto">
+          <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg hidden sm:block">
             <CalendarDays size={24} />
           </div>
-          <div className="flex-1">
-            <p className="text-xs text-gray-500 font-bold mb-1">التاريخ المختار للوحة</p>
-            {/* التعديل هنا: تحويل القائمة المنسدلة إلى أداة اختيار تاريخ */}
-            <input 
-              type="date"
-              className="border-gray-300 rounded-md border p-2 text-sm font-bold bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none w-full"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-            />
+          
+          <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+            <div>
+              <p className="text-[10px] text-gray-500 font-bold mb-1">فترة التقرير</p>
+              <select 
+                className="border-gray-300 rounded-md border p-1.5 text-sm font-bold bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none w-full sm:w-auto"
+                value={periodType}
+                onChange={(e) => setPeriodType(e.target.value)}
+              >
+                <option value="day">يوم واحد</option>
+                <option value="week">أسبوع</option>
+                <option value="month">شهر</option>
+                <option value="custom">فترة مخصصة</option>
+              </select>
+            </div>
+
+            {periodType === 'custom' && (
+              <div>
+                <p className="text-[10px] text-gray-500 font-bold mb-1">من تاريخ</p>
+                <input 
+                  type="date"
+                  className="border-gray-300 rounded-md border p-1.5 text-sm font-bold bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none w-full sm:w-auto"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+            )}
+
+            <div>
+              <p className="text-[10px] text-gray-500 font-bold mb-1">{periodType === 'custom' ? 'إلى تاريخ' : 'التاريخ'}</p>
+              <input 
+                type="date"
+                className="border-gray-300 rounded-md border p-1.5 text-sm font-bold bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none w-full sm:w-auto"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+            </div>
           </div>
         </div>
         
-        <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
-          <div className="text-right text-sm">
-            <span className="text-gray-500 block text-xs">آخر تاريخ مسجل:</span>
-            <span className="font-bold text-gray-800" dir="ltr">{uniqueDates[0] || todayStr}</span>
-          </div>
+        <div className="flex items-center gap-4 w-full lg:w-auto justify-between lg:justify-end">
           <button 
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-sm"
+            onClick={handleExportExcel}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-sm w-full sm:w-auto justify-center"
           >
             <Download size={16} />
-            تصدير التقرير
+            تصدير التقرير (Excel)
           </button>
         </div>
       </div>
@@ -388,15 +417,15 @@ export default function App() {
           <h3 className="text-2xl font-black text-gray-800">{dashboardStats.totalStock}</h3>
         </div>
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-          <p className="text-xs text-gray-500 mb-1 font-bold">بيع المنتجات المسجل</p>
+          <p className="text-xs text-gray-500 mb-1 font-bold">بيع المنتجات (للفترة)</p>
           <h3 className="text-2xl font-black text-blue-600">{dashboardStats.totalSkuSales}</h3>
         </div>
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-          <p className="text-xs text-gray-500 mb-1 font-bold">بيع البكجات المسجل</p>
+          <p className="text-xs text-gray-500 mb-1 font-bold">بيع البكجات (للفترة)</p>
           <h3 className="text-2xl font-black text-green-600">{dashboardStats.totalPkgSales}</h3>
         </div>
         <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-          <p className="text-xs text-gray-500 mb-1 font-bold">الرجوعات المسجلة</p>
+          <p className="text-xs text-gray-500 mb-1 font-bold">الرجوعات (للفترة)</p>
           <h3 className="text-2xl font-black text-red-600">{dashboardStats.totalReturns}</h3>
         </div>
       </div>
@@ -432,7 +461,7 @@ export default function App() {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="p-3 border-b border-gray-200 bg-slate-800 text-white">
             <h3 className="font-bold text-sm flex items-center gap-2">
-              <Package size={16} /> تحليل المنتجات الفردية (للتاريخ: {selectedDate})
+              <Package size={16} /> تحليل المنتجات الفردية (للفترة: {startDate} إلى {endDate})
             </h3>
           </div>
           <div className="overflow-x-auto">
@@ -440,7 +469,7 @@ export default function App() {
               <thead className="bg-gray-100 text-gray-600 border-b border-gray-200">
                 <tr>
                   <th className="p-2 font-bold whitespace-nowrap">SKU</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center">مخزون اليوم</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center">المخزون الحالي</th>
                   <th className="p-2 font-bold whitespace-nowrap text-center text-blue-700">مبيعات فعلية</th>
                   <th className="p-2 font-bold whitespace-nowrap text-center text-red-700">رجوعات/رفض</th>
                   <th className="p-2 font-bold whitespace-nowrap text-center">صافي المبيعات</th>
@@ -451,7 +480,7 @@ export default function App() {
               <tbody className="divide-y divide-gray-100">
                 {PRODUCTS.map(sku => {
                   const qty = stockAsOfDate[sku] || 0;
-                  const stats = getDailyItemStats(sku, 'منتج');
+                  const stats = getPeriodItemStats(sku, 'منتج');
                   const status = qty > 150 ? 'جيد' : (qty > 50 ? 'متوسط' : 'منخفض');
                   const statusColor = qty > 150 ? 'text-green-600 bg-green-50' : (qty > 50 ? 'text-orange-600 bg-orange-50' : 'text-red-600 bg-red-50');
                   
@@ -481,7 +510,7 @@ export default function App() {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="p-3 border-b border-gray-200 bg-indigo-900 text-white">
             <h3 className="font-bold text-sm flex items-center gap-2">
-              <PackageOpen size={16} /> تحليل البكجات والعروض (للتاريخ: {selectedDate})
+              <PackageOpen size={16} /> تحليل البكجات والعروض (للفترة: {startDate} إلى {endDate})
             </h3>
           </div>
           <div className="overflow-x-auto">
@@ -499,8 +528,8 @@ export default function App() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {Object.entries(packageAvailabilityAsOfDate).map(([code, data]) => {
-                  const stats = getDailyItemStats(code, 'بكج');
-                  const decision = data.max > 150 ? 'حملات قوية' : (data.max > 50 ? 'بحذر' : 'إيقاف/توريد');
+                  const stats = getPeriodItemStats(code, 'بكج');
+                  const decision = data.max > 150 ? 'أطلق حملات' : (data.max > 50 ? 'احذر' : 'إيقاف/توريد');
                   const decisionColor = data.max > 150 ? 'text-green-600 bg-green-50' : (data.max > 50 ? 'text-orange-600 bg-orange-50' : 'text-red-600 bg-red-50');
 
                   return (
@@ -537,7 +566,7 @@ export default function App() {
       date: todayStr,
       level: 'منتج',
       code: PRODUCTS[0],
-      type: 'بيع',
+      type: MOVEMENT_TYPES[0].id, // يتم اختياره تلقائياً ليكون الأول في القائمة
       quantity: 1,
       reference: '',
       note: ''

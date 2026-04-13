@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   LayoutDashboard, 
   Package, 
@@ -20,13 +20,16 @@ import {
   X,
   Edit2,
   Check,
-  Users
+  Users,
+  UploadCloud,
+  FileSpreadsheet,
+  CheckCircle2
 } from 'lucide-react';
 
 // --- إعدادات قاعدة البيانات السحابية (Firebase) ---
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyCeHc-P80oM5hjc7yugdk-YVcRGnz8NOhE",
@@ -46,8 +49,8 @@ const DEFAULT_PRODUCTS = ['9000901', '9000902', '9000904', '9000905', '9000906',
 
 const DEFAULT_PACKAGES = {
   'asg001': { 
-    name: 'بكج التأسيس', 
-    group: 'بكج التأسيس',
+    name: 'بكج اسباركل', 
+    group: 'بكج اسباركل',
     channel: 'المتجر (عضوي)', 
     items: { '9000901': 1, '9000902': 1 } 
   },
@@ -77,13 +80,32 @@ const MOVEMENT_TYPES = [
   { id: 'بيع (دفع عند الاستلام)', type: 'out' },
   { id: 'بيع آلي (عبر الربط)', type: 'out'},
   { id: 'بيع مجمع (إدخال سابق)', type: 'out'},
-  { id: 'مرتجع', type: 'in' },
-  { id: 'رفض استلام - رجوع للمخزون', type: 'in' },
-  { id: 'تلف', type: 'out' },
+  { id: 'مرتجع (إلغاء رغبة العميل)', type: 'in' },
+  { id: 'مرتجع (عدم استلام من الشحن)', type: 'in' },
+  { id: 'مرتجع (تالف أو خطأ بالطلب)', type: 'in' },
+  { id: 'تلف داخلي', type: 'out' },
   { id: 'تعديل يدوي (نقص)', type: 'out' },
   { id: 'تعديل يدوي (زيادة)', type: 'in' },
-  { id: 'دخول بضاعة', type: 'in' }
+  { id: 'دخول بضاعة جديدة', type: 'in' }
 ];
+
+// دالة لفك تشفير ملفات الـ CSV بشكل صحيح
+const parseCSV = (str) => {
+  const arr = [];
+  let quote = false;
+  let row = 0, col = 0;
+  for (let c = 0; c < str.length; c++) {
+      let cc = str[c], nc = str[c+1];
+      arr[row] = arr[row] || [];
+      arr[row][col] = arr[row][col] || '';
+      if (cc === '"' && quote && nc === '"') { arr[row][col] += cc; ++c; continue; }
+      if (cc === '"') { quote = !quote; continue; }
+      if (cc === ',' && !quote) { ++col; continue; }
+      if (cc === '\n' && !quote) { ++row; col = 0; continue; }
+      arr[row][col] += cc;
+  }
+  return arr.map(row => row.map(cell => cell.trim().replace(/\r/g, '')));
+};
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -121,27 +143,24 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [movements, setMovements] = useState([]);
   
-  // حالات المنتجات والبكجات 
   const [products, setProducts] = useState([]);
   const [packages, setPackages] = useState({});
   const [isSettingsLoaded, setIsSettingsLoaded] = useState(false);
 
-  // حالات الصلاحيات
   const [permissions, setPermissions] = useState({});
-  const [currentUserRole, setCurrentUserRole] = useState('viewer'); // الافتراضي
+  const [currentUserRole, setCurrentUserRole] = useState('viewer'); 
   const [isPermissionsLoaded, setIsPermissionsLoaded] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [authError, setAuthError] = useState(null);
 
-  // حالات تسجيل الدخول
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // 1. المصادقة (إصلاح مشكلة شاشة التحميل هنا)
+  // 1. المصادقة
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
@@ -150,7 +169,7 @@ export default function App() {
       } else {
         setUser(null);
       }
-      setIsLoading(false); // إخفاء التحميل الأولي سواء كان مسجل دخول أو لا
+      setIsLoading(false);
     });
     return () => unsubscribe();
   }, []);
@@ -347,7 +366,7 @@ export default function App() {
 
     movementsInPeriod.forEach(m => {
       const isSale = m.type.includes('بيع');
-      const isReturn = m.type === 'مرتجع' || m.type.includes('رفض استلام');
+      const isReturn = m.type.includes('مرتجع') || m.type.includes('رفض استلام');
 
       if (isSale && m.level === 'منتج') totalSkuSales += parseInt(m.quantity);
       if (isSale && m.level === 'بكج') totalPkgSales += parseInt(m.quantity);
@@ -363,7 +382,7 @@ export default function App() {
     movementsInPeriod.forEach(m => {
       if (m.code === code && m.level === level) {
         const isSale = m.type.includes('بيع');
-        const isReturn = m.type === 'مرتجع' || m.type.includes('رفض استلام');
+        const isReturn = m.type.includes('مرتجع') || m.type.includes('رفض استلام');
         if (isSale) sales += parseInt(m.quantity);
         if (isReturn) returns += parseInt(m.quantity);
       }
@@ -644,7 +663,6 @@ export default function App() {
     const [editingSku, setEditingSku] = useState(null);
     const [editSkuValue, setEditSkuValue] = useState('');
     
-    // Package form states
     const [pkgCode, setPkgCode] = useState('');
     const [pkgName, setPkgName] = useState('');
     const [pkgGroup, setPkgGroup] = useState('');
@@ -714,7 +732,6 @@ export default function App() {
       
       updateSettingsInCloud(products, newPackages);
       
-      // Reset form
       setPkgCode(''); setPkgName(''); setPkgGroup(''); setPkgChannel(''); setPkgItems({});
     };
 
@@ -922,273 +939,11 @@ export default function App() {
     );
   };
 
-  const renderDashboard = () => (
-    <div className="space-y-6 animate-in fade-in">
-      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full lg:w-auto">
-          <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg hidden sm:block">
-            <CalendarDays size={24} />
-          </div>
-          
-          <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
-            <div>
-              <p className="text-[10px] text-gray-500 font-bold mb-1">فترة التقرير</p>
-              <select 
-                className="border-gray-300 rounded-md border p-1.5 text-sm font-bold bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none w-full sm:w-auto"
-                value={periodType}
-                onChange={(e) => setPeriodType(e.target.value)}
-              >
-                <option value="day">يوم واحد</option>
-                <option value="week">أسبوع</option>
-                <option value="month">شهر</option>
-                <option value="custom">فترة مخصصة</option>
-              </select>
-            </div>
-
-            {periodType === 'custom' && (
-              <div>
-                <p className="text-[10px] text-gray-500 font-bold mb-1">من تاريخ</p>
-                <input 
-                  type="date"
-                  className="border-gray-300 rounded-md border p-1.5 text-sm font-bold bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none w-full sm:w-auto"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                />
-              </div>
-            )}
-
-            <div>
-              <p className="text-[10px] text-gray-500 font-bold mb-1">{periodType === 'custom' ? 'إلى تاريخ' : 'التاريخ'}</p>
-              <input 
-                type="date"
-                className="border-gray-300 rounded-md border p-1.5 text-sm font-bold bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none w-full sm:w-auto"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
-            </div>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-4 w-full lg:w-auto justify-between lg:justify-end">
-          <button 
-            onClick={handleExportExcel}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-sm w-full sm:w-auto justify-center"
-          >
-            <Download size={16} />
-            تصدير التقرير (Excel)
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-          <p className="text-xs text-gray-500 mb-1 font-bold">إجمالي مخزون المنتجات</p>
-          <h3 className="text-2xl font-black text-gray-800">{dashboardStats.totalStock}</h3>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-          <p className="text-xs text-gray-500 mb-1 font-bold">بيع المنتجات (للفترة)</p>
-          <h3 className="text-2xl font-black text-blue-600">{dashboardStats.totalSkuSales}</h3>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-          <p className="text-xs text-gray-500 mb-1 font-bold">بيع البكجات (للفترة)</p>
-          <h3 className="text-2xl font-black text-green-600">{dashboardStats.totalPkgSales}</h3>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-          <p className="text-xs text-gray-500 mb-1 font-bold">الرجوعات (للفترة)</p>
-          <h3 className="text-2xl font-black text-red-600">{dashboardStats.totalReturns}</h3>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col">
-          <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
-            <BarChart3 size={18} className="text-blue-600" /> حركة إجمالي المبيعات (آخر 7 أيام)
-          </h3>
-          <div className="flex items-end gap-2 md:gap-4 h-48 pt-6 mt-auto">
-            {trendData.map((d, index) => {
-              const heightPercent = maxSalesInTrend > 0 ? (d.sales / maxSalesInTrend) * 100 : 0;
-              return (
-                <div key={index} className="flex-1 flex flex-col items-center gap-2 group">
-                  <div className="w-full max-w-[40px] bg-blue-50 rounded-t-md relative flex items-end justify-center h-full border-b border-blue-100">
-                    <div 
-                      className="w-full bg-blue-500 rounded-t-md transition-all duration-700 ease-out group-hover:bg-blue-600 shadow-sm" 
-                      style={{ height: `${heightPercent}%`, minHeight: d.sales > 0 ? '4px' : '0' }}
-                    ></div>
-                    <span className="absolute -top-6 text-xs font-bold text-gray-700 opacity-80 group-hover:opacity-100 group-hover:-top-7 transition-all">
-                      {d.sales}
-                    </span>
-                  </div>
-                  <span className="text-[10px] md:text-xs text-gray-500 font-medium truncate w-full text-center" dir="ltr">
-                  {d.date.substring(5)}
-                </span>
-              </div>
-            );
-          })}
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col max-h-[300px] overflow-hidden">
-          <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 shrink-0">
-            <PackageOpen size={18} className="text-purple-600" /> مقارنة أداء القنوات (حسب المنتج)
-          </h3>
-          <div className="flex-1 flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar">
-            {groupedPackagePerformance.length === 0 && <p className="text-sm text-gray-400 text-center mt-10">لا توجد بيانات للفترة المحددة</p>}
-            {groupedPackagePerformance.map((group, gIdx) => {
-              const maxInGroup = Math.max(...group.pkgs.map(p => p.sales), 1);
-              
-              return (
-                <div key={gIdx} className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-100 shrink-0">
-                  <h4 className="text-xs font-black text-slate-700 border-b border-slate-200 pb-2 flex justify-between">
-                    <span>{group.groupName}</span>
-                    <span className="text-[10px] text-slate-500 font-bold bg-white px-2 py-0.5 rounded border">إجمالي: {group.totalSales}</span>
-                  </h4>
-                  <div className="space-y-3">
-                    {group.pkgs.map(pkg => {
-                      const widthPercent = (pkg.sales / maxInGroup) * 100;
-                      const isWinner = pkg.sales === maxInGroup && pkg.sales > 0;
-                      
-                      return (
-                        <div key={pkg.code} className="space-y-1.5">
-                          <div className="flex justify-between text-[11px] font-bold items-center">
-                            <span className={`truncate pr-1 flex items-center gap-1 ${isWinner ? 'text-gray-900' : 'text-gray-600'}`}>
-                              {isWinner && <span title="أفضل قناة" className="text-yellow-500 text-[14px]">🏆</span>}
-                              {pkg.channel}
-                            </span>
-                            <span className="text-gray-800 bg-white px-2 py-0.5 rounded shadow-sm border border-gray-200 text-[10px]">
-                              {pkg.sales} مبيعة
-                            </span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-                            <div 
-                              className={`h-1.5 rounded-full transition-all duration-700 ease-out ${isWinner ? 'bg-gradient-to-l from-yellow-500 to-yellow-400' : 'bg-gradient-to-l from-purple-500 to-purple-300'}`}
-                              style={{ width: `${widthPercent}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="p-3 border-b border-gray-200 bg-slate-800 text-white">
-            <h3 className="font-bold text-sm flex items-center gap-2">
-              <Package size={16} /> تحليل المنتجات الفردية (للفترة: {startDate} إلى {endDate})
-            </h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
-              <thead className="bg-gray-100 text-gray-600 border-b border-gray-200">
-                <tr>
-                  <th className="p-2 font-bold whitespace-nowrap">SKU</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center">المخزون الحالي</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center text-blue-700">مبيعات فعلية</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center text-red-700">رجوعات/رفض</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center">صافي المبيعات</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center">الحالة</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center">تنبيه</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {products.length === 0 && <tr><td colSpan="7" className="p-4 text-center text-gray-400">لا توجد منتجات معرفة</td></tr>}
-                {products.map(sku => {
-                  const qty = stockAsOfDate[sku] || 0;
-                  const stats = getPeriodItemStats(sku, 'منتج');
-                  const status = qty > 150 ? 'جيد' : (qty > 50 ? 'متوسط' : 'منخفض');
-                  const statusColor = qty > 150 ? 'text-green-600 bg-green-50' : (qty > 50 ? 'text-orange-600 bg-orange-50' : 'text-red-600 bg-red-50');
-                  
-                  return (
-                    <tr key={sku} className="hover:bg-gray-50">
-                      <td className="p-2 font-bold text-gray-800 bg-gray-50 border-l border-gray-100">{sku}</td>
-                      <td className="p-2 text-center font-bold text-gray-700">{qty}</td>
-                      <td className="p-2 text-center font-bold text-blue-600">{stats.sales}</td>
-                      <td className="p-2 text-center font-bold text-red-600">{stats.returns}</td>
-                      <td className="p-2 text-center font-bold text-gray-800">{stats.net}</td>
-                      <td className="p-2 text-center">
-                        <span className={`inline-block px-2 py-1 rounded-md text-[10px] font-bold ${statusColor}`}>
-                          {status}
-                        </span>
-                      </td>
-                      <td className="p-2 text-center">
-                        {qty < 50 && <AlertTriangle size={14} className="text-red-500 inline" />}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="p-3 border-b border-gray-200 bg-indigo-900 text-white">
-            <h3 className="font-bold text-sm flex items-center gap-2">
-              <PackageOpen size={16} /> تحليل البكجات والعروض (للفترة: {startDate} إلى {endDate})
-            </h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs">
-              <thead className="bg-gray-100 text-gray-600 border-b border-gray-200">
-                <tr>
-                  <th className="p-2 font-bold whitespace-nowrap">كود البكج</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center">القناة / المشهور</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center">أقصى بيع ممكن</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center text-blue-700">مبيعات فعلية</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center text-red-700">رجوعات/رفض</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center">صافي المبيعات</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center">SKU الحرج</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center">القرار</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {Object.keys(packages).length === 0 && <tr><td colSpan="8" className="p-4 text-center text-gray-400">لا توجد بكجات معرفة</td></tr>}
-                {Object.entries(packageAvailabilityAsOfDate).map(([code, data]) => {
-                  const stats = getPeriodItemStats(code, 'بكج');
-                  const decision = data.max > 150 ? 'أطلق حملات' : (data.max > 50 ? 'احذر' : 'إيقاف/توريد');
-                  const decisionColor = data.max > 150 ? 'text-green-600 bg-green-50' : (data.max > 50 ? 'text-orange-600 bg-orange-50' : 'text-red-600 bg-red-50');
-                  const channel = packages[code]?.channel || '-';
-                  const groupName = packages[code]?.group || '-';
-
-                  return (
-                    <tr key={code} className="hover:bg-gray-50">
-                      <td className="p-2 font-bold text-gray-800 bg-gray-50 border-l border-gray-100">
-                        {code}
-                        <div className="text-[10px] text-gray-400 font-normal truncate max-w-[100px]" title={packages[code]?.name}>{packages[code]?.name}</div>
-                      </td>
-                      <td className="p-2 text-center text-[10px] space-y-1">
-                        <div className="font-bold text-gray-700 bg-gray-100 rounded px-1 truncate max-w-[100px]">{groupName}</div>
-                        <div className="font-bold text-purple-700 bg-purple-50/50 rounded px-1 truncate max-w-[100px]">{channel}</div>
-                      </td>
-                      <td className="p-2 text-center font-black text-indigo-700">{data.max}</td>
-                      <td className="p-2 text-center font-bold text-blue-600">{stats.sales}</td>
-                      <td className="p-2 text-center font-bold text-red-600">{stats.returns}</td>
-                      <td className="p-2 text-center font-bold text-gray-800">{stats.net}</td>
-                      <td className="p-2 text-center text-[10px] font-mono text-red-500 bg-red-50/50 rounded">
-                        {data.max === 0 ? 'نفد' : data.criticalSku}
-                      </td>
-                      <td className="p-2 text-center">
-                        <span className={`inline-block px-2 py-1 rounded-md text-[10px] font-bold whitespace-nowrap ${decisionColor}`}>
-                          {decision}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
   const MovementForm = () => {
+    const fileInputRef = useRef(null);
+    const [importPreview, setImportPreview] = useState(null);
+    const [importMode, setImportMode] = useState('sales');
+
     const defaultCode = products.length > 0 ? products[0] : '';
     const defaultPkgCode = Object.keys(packages).length > 0 ? Object.keys(packages)[0] : '';
     
@@ -1206,7 +961,6 @@ export default function App() {
       setFormData(prev => ({ ...prev, date: todayStr }));
     }, [todayStr]);
 
-    // لضمان تحديث الكود الافتراضي عند تحميل المنتجات أو تغير المستوى
     useEffect(() => {
       setFormData(prev => ({
         ...prev,
@@ -1226,8 +980,227 @@ export default function App() {
       setFormData({ ...formData, quantity: 1, reference: '', note: '', date: todayStr });
     };
 
+    // ميزة قراءة ملف الـ CSV الذكية مع التعرف على الكمية وطريقة الدفع
+    const handleFileUpload = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const text = event.target.result;
+        const rows = parseCSV(text);
+        if(rows.length < 2) {
+          alert('الملف فارغ أو غير صالح');
+          return;
+        }
+
+        const headers = rows[0];
+        
+        // البحث عن أعمدة سلة الذكية
+        const orderIdCol = headers.findIndex(h => h.includes('رقم الطلب') || h.includes('رقم'));
+        const productCol = headers.findIndex(h => h.includes('نوع الطلب') || h.includes('المنتجات') || h.includes('اسم المنتج') || h.includes('اسماء'));
+        const qtyCol = headers.findIndex(h => h.includes('الكمية') || h.includes('العدد') || h === 'Qty');
+        const paymentCol = headers.findIndex(h => h.includes('طريقة الدفع') || h.includes('الدفع')); // لتمييز نوع الدفع للمبيعات
+
+        const parsedMovements = [];
+        
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          if(!row || row.length < 2 || !row[orderIdCol]) continue;
+          
+          let orderId = row[orderIdCol]?.replace(/["']/g, '').replace(/^\uFEFF/, ''); // إزالة الـ BOM إن وجد
+          let productStr = productCol !== -1 ? (row[productCol] || '') : '';
+          let paymentStr = paymentCol !== -1 ? (row[paymentCol] || '') : '';
+          
+          let qty = 1;
+          // محاولة أخذ الكمية من عمود مستقل أولاً
+          if (qtyCol !== -1 && row[qtyCol] && !isNaN(parseInt(row[qtyCol]))) {
+              qty = parseInt(row[qtyCol]);
+          } else {
+              // ذكاء اصطناعي: محاولة استخراج الكمية المكتوبة داخل اسم المنتج في سلة مثل (Qty: 2)
+              const qtyMatch = productStr.match(/Qty:\s*(\d+)/i);
+              if (qtyMatch) qty = parseInt(qtyMatch[1]);
+          }
+
+          // خوارزمية ذكية لاكتشاف نوع البكج من النص (مطابقة للصورة المطلوبة)
+          let mappedCode = null;
+          let mappedLevel = 'بكج';
+
+          // 1- محاولة التقاط الـ SKU مباشرة إذا كان سلة كاتبه (SKU: asg002)
+          const skuMatch = productStr.match(/SKU:\s*([a-zA-Z0-9_-]+)/i);
+          if (skuMatch && packages[skuMatch[1]]) {
+             mappedCode = skuMatch[1];
+          } 
+          else if (productStr.includes('مجموعة سباركل الكاملة') || productStr.includes('مجموعة سبارك الكاملة')) {
+            mappedCode = 'asg002';
+          } else if (productStr.includes('بكج اسباركل') || productStr.includes('بكج التأسيس')) {
+            mappedCode = 'asg001';
+          } else if (productStr.includes('بكج العساف')) {
+            mappedCode = 'asg003';
+          } else if (productStr.includes('بكج الـ 7 عطور')) {
+            mappedCode = 'asg002';
+          } else {
+            // 2- البحث التلقائي في البكجات المعرفة سلفاً
+            Object.entries(packages).forEach(([code, pkg]) => {
+              if(productStr.includes(code) || productStr.includes(pkg.name)) {
+                mappedCode = code;
+              }
+            });
+          }
+
+          // 3- إذا لم يجد بكج، يبحث في المنتجات الفردية
+          if (!mappedCode) {
+            products.forEach(sku => {
+              if(productStr.includes(sku)) {
+                mappedCode = sku;
+                mappedLevel = 'منتج';
+              }
+            });
+          }
+
+          // افتراضي إذا لم يتعرف عليه أبداً
+          if (!mappedCode) {
+            mappedCode = Object.keys(packages)[0] || products[0];
+          }
+
+          // ذكاء اصطناعي: تحديد نوع الحركة بدقة من طريقة الدفع
+          let movType = 'بيع آلي (عبر الربط)'; // الافتراضي
+          
+          if (importMode === 'sales') {
+             if (paymentStr.includes('تمارا') || paymentStr.includes('تابي')) {
+                 movType = 'بيع (تمارا)';
+             } else if (paymentStr.includes('عند الاستلام') || paymentStr.includes('الدفع عند الاستلام')) {
+                 movType = 'بيع (دفع عند الاستلام)';
+             } else if (paymentStr !== '') {
+                 movType = 'بيع (دفع إلكتروني)';
+             }
+          } else {
+             movType = 'مرتجع (إلغاء رغبة العميل)'; // للرجيع
+          }
+          
+          parsedMovements.push({
+            date: todayStr,
+            level: mappedLevel,
+            code: mappedCode,
+            type: movType,
+            quantity: qty,
+            reference: orderId,
+            note: importMode === 'sales' ? 'استيراد مبيعات (مُوصل)' : 'استيراد رجيع (دعم فني)'
+          });
+        }
+
+        setImportPreview(parsedMovements);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      };
+      reader.readAsText(file, 'UTF-8');
+    };
+
+    const confirmImport = async () => {
+      if(!importPreview || importPreview.length === 0) return;
+      setIsSyncing(true);
+      
+      try {
+        const batchSize = 100;
+        for (let i = 0; i < importPreview.length; i += batchSize) {
+          const chunk = importPreview.slice(i, i + batchSize);
+          const batch = writeBatch(db);
+          
+          chunk.forEach(mov => {
+            const movementId = `mov_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'movements', movementId);
+            batch.set(docRef, { ...mov, timestamp: Date.now() });
+          });
+          
+          await batch.commit();
+        }
+        alert(`تم رفع ${importPreview.length} حركة بنجاح!`);
+        setImportPreview(null);
+      } catch (e) {
+        console.error(e);
+        alert('حدث خطأ أثناء رفع الملف.');
+      } finally {
+        setIsSyncing(false);
+      }
+    };
+
     return (
       <div className="space-y-6 animate-in fade-in">
+        
+        {/* قسم استيراد الدعم الفني والمبيعات */}
+        <div className="bg-gradient-to-r from-blue-900 to-indigo-800 p-6 rounded-xl border border-indigo-200 shadow-sm text-white relative">
+          {importPreview && (
+            <div className="absolute inset-0 bg-white/95 text-gray-800 z-20 rounded-xl p-6 flex flex-col shadow-xl border border-gray-200 animate-in fade-in zoom-in-95">
+               <h3 className="text-xl font-bold mb-2 flex items-center gap-2"><CheckCircle2 className="text-green-500"/> معاينة قبل الحفظ</h3>
+               <p className="text-sm text-gray-500 mb-4">تم العثور على <b>{importPreview.length}</b> طلب في الملف. سيتم إدراجها كـ <span className={`font-bold px-2 py-0.5 rounded text-white ${importMode === 'sales' ? 'bg-blue-500' : 'bg-red-500'}`}>{importMode === 'sales' ? 'مبيعات' : 'مرتجعات'}</span>.</p>
+               
+               <div className="flex-1 overflow-auto border rounded-lg bg-gray-50 p-2 mb-4 custom-scrollbar">
+                  <table className="w-full text-right text-xs">
+                    <thead>
+                      <tr className="text-gray-400 border-b bg-gray-100">
+                        <th className="p-2 font-bold">المرجع</th>
+                        <th className="p-2 font-bold">الكود</th>
+                        <th className="p-2 font-bold">الكمية</th>
+                        <th className="p-2 font-bold">نوع الحركة</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.slice(0, 20).map((m, i) => (
+                        <tr key={i} className="border-b border-gray-100 last:border-0 hover:bg-white transition-colors">
+                          <td className="p-2 font-mono text-gray-500">{m.reference}</td>
+                          <td className="p-2 font-bold text-indigo-600">{m.code}</td>
+                          <td className="p-2 font-black">{m.quantity}</td>
+                          <td className="p-2">
+                             <span className={`px-2 py-1 rounded text-[10px] ${m.type.includes('بيع') ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'}`}>
+                               {m.type}
+                             </span>
+                          </td>
+                        </tr>
+                      ))}
+                      {importPreview.length > 20 && <tr><td colSpan="4" className="py-4 text-center text-gray-400 font-bold">... و {importPreview.length - 20} طلب آخر</td></tr>}
+                    </tbody>
+                  </table>
+               </div>
+
+               <div className="flex gap-3">
+                 <button onClick={confirmImport} disabled={isSyncing} className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg flex justify-center items-center gap-2 transition-colors">
+                   {isSyncing ? <Loader2 className="animate-spin" size={18}/> : 'تأكيد وحفظ في السحابة'}
+                 </button>
+                 <button onClick={() => setImportPreview(null)} disabled={isSyncing} className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-3 px-6 rounded-lg transition-colors">إلغاء</button>
+               </div>
+            </div>
+          )}
+
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <h3 className="text-lg font-bold flex items-center gap-2 mb-1">
+                <FileSpreadsheet size={20} /> استيراد ذكي لملفات الإكسل (CSV)
+              </h3>
+              <p className="text-indigo-200 text-xs max-w-xl mb-4 leading-relaxed">
+                ارفع ملفات (تم التوصيل) لتسجيل المبيعات، أو ملفات (الدعم الفني والرجيع) لخصمها من المبيعات. النظام سيقرأ أرقام الطلبات ويتعرف على البكجات وطريقة الدفع تلقائياً.
+              </p>
+              
+              <div className="flex items-center gap-4 bg-indigo-950/50 p-2 rounded-lg w-fit">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="radio" name="importType" checked={importMode === 'sales'} onChange={() => setImportMode('sales')} className="w-4 h-4 accent-blue-500" />
+                  <span>ملف مبيعات (تم التوصيل)</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="radio" name="importType" checked={importMode === 'returns'} onChange={() => setImportMode('returns')} className="w-4 h-4 accent-red-500" />
+                  <span className="text-red-200">ملف رجيع (دعم فني)</span>
+                </label>
+              </div>
+            </div>
+            
+            <div className="mt-4 md:mt-0">
+               <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" id="csv-upload" />
+               <label htmlFor="csv-upload" className="cursor-pointer flex items-center gap-2 bg-white text-indigo-900 px-5 py-3 rounded-lg font-bold text-sm shadow-md hover:bg-indigo-50 transition-colors">
+                  <UploadCloud size={18} /> اختيار ورفع الملف
+               </label>
+            </div>
+          </div>
+        </div>
+
+        {/* قسم التسجيل اليدوي كالعادة */}
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm relative">
           {isSyncing && (
             <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center rounded-xl z-10">
@@ -1235,8 +1208,8 @@ export default function App() {
             </div>
           )}
           <h3 className="text-lg font-semibold mb-4 border-b pb-2 flex justify-between items-center">
-            <span>تسجيل حركة جديدة</span>
-            <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded">يمكن للأدوات الخارجية الإضافة هنا آلياً</span>
+            <span>تسجيل حركة جديدة (يدوي)</span>
+            <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded">أو قم بالإدخال يدوياً من هنا</span>
           </h3>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
@@ -1391,7 +1364,7 @@ export default function App() {
              date,
              level: 'منتج',
              code: sku,
-             type: 'دخول بضاعة',
+             type: 'دخول بضاعة جديدة',
              quantity: parseInt(qty),
              note: 'إدخال بضاعة / جرد'
            });
@@ -1469,7 +1442,7 @@ export default function App() {
                  <p className="text-sm text-blue-700 mb-3">تُستخدم سلة كمصدر لتسجيل المبيعات والمرتجعات تلقائياً.</p>
                  <ul className="list-disc list-inside space-y-1 text-blue-800 text-xs font-medium">
                    <li>عندما يصبح الطلب <b>"تم التنفيذ"</b>: أرسل حركة بنوع <code>بيع آلي (عبر الربط)</code>.</li>
-                   <li>عندما يصبح الطلب <b>"مسترجع"</b>: أرسل حركة بنوع <code>مرتجع</code>.</li>
+                   <li>عندما يصبح الطلب <b>"مسترجع"</b>: أرسل حركة بنوع <code>مرتجع (إلغاء رغبة العميل)</code>.</li>
                    <li>اجعل حقل <code>reference</code> يحتوي على رقم طلب سلة (مثال: #12345).</li>
                  </ul>
                </div>
@@ -1478,8 +1451,8 @@ export default function App() {
                  <h3 className="font-bold text-emerald-800 text-lg mb-2 flex items-center gap-2">📦 الربط مع Between (المخزون)</h3>
                  <p className="text-sm text-emerald-700 mb-3">تُستخدم بتوين كمصدر لتسجيل دخول البضاعة والتوالف.</p>
                  <ul className="list-disc list-inside space-y-1 text-emerald-800 text-xs font-medium">
-                   <li>عند استلام <b>توريد جديد</b>: أرسل حركة بنوع <code>دخول بضاعة</code>.</li>
-                   <li>عند اكتشاف <b>تالف</b>: أرسل حركة بنوع <code>تلف</code>.</li>
+                   <li>عند استلام <b>توريد جديد</b>: أرسل حركة بنوع <code>دخول بضاعة جديدة</code>.</li>
+                   <li>عند اكتشاف <b>تالف</b>: أرسل حركة بنوع <code>تلف داخلي</code>.</li>
                    <li>اجعل حقل <code>reference</code> يحتوي على رقم إيصال الاستلام من بتوين.</li>
                  </ul>
                </div>

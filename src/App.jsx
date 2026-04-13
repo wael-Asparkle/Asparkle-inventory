@@ -64,9 +64,25 @@ const MOVEMENT_TYPES = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const todayStr = new Date().toISOString().split('T')[0];
-  const [selectedDate, setSelectedDate] = useState(todayStr);
   
+  // --- التحديث الجديد: جعل التاريخ ديناميكي ويتحدث تلقائياً ---
+  const [todayStr, setTodayStr] = useState(() => new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(todayStr);
+
+  // ساعة داخلية للتحقق من تغير اليوم (عند منتصف الليل)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const currentDay = new Date().toISOString().split('T')[0];
+      if (currentDay !== todayStr) {
+        setTodayStr(currentDay);
+        // إذا كان المستخدم يراقب "اليوم"، اجعل اللوحة تنتقل لليوم الجديد تلقائياً
+        setSelectedDate(prev => prev === todayStr ? currentDay : prev);
+      }
+    }, 60000); // يتحقق كل دقيقة
+    return () => clearInterval(timer);
+  }, [todayStr]);
+  // -------------------------------------------------------------
+
   // حالات الاتصال وقاعدة البيانات
   const [user, setUser] = useState(null);
   const [movements, setMovements] = useState([]);
@@ -95,7 +111,6 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // دالة تسجيل الدخول
   const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoggingIn(true);
@@ -110,7 +125,6 @@ export default function App() {
     }
   };
 
-  // دالة تسجيل الخروج
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -183,7 +197,7 @@ export default function App() {
 
   const uniqueDates = useMemo(() => {
     const dates = new Set(movements.map(m => m.date));
-    dates.add(todayStr);
+    dates.add(todayStr); // todayStr يتحدث تلقائياً الآن
     return Array.from(dates).sort((a, b) => b.localeCompare(a));
   }, [movements, todayStr]);
 
@@ -531,13 +545,18 @@ export default function App() {
       note: ''
     });
 
-    // حالة التحكم في نافذة التأكيد لحذف الحركة
+    // تحديث تاريخ النموذج تلقائياً إذا تغير اليوم والمستخدم تارك الصفحة مفتوحة
+    useEffect(() => {
+      setFormData(prev => ({ ...prev, date: todayStr }));
+    }, [todayStr]);
+
     const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
     const handleSubmit = async (e) => {
       e.preventDefault();
       await addMovementToCloud(formData);
-      setFormData({ ...formData, quantity: 1, reference: '', note: '' });
+      // نرجع نستخدم todayStr عند تفريغ النموذج بعد الإرسال
+      setFormData({ ...formData, quantity: 1, reference: '', note: '', date: todayStr });
     };
 
     return (
@@ -684,6 +703,12 @@ export default function App() {
 
   const DailyStockForm = () => {
     const [date, setDate] = useState(todayStr);
+
+    // تحديث التاريخ في النموذج إذا تغير اليوم
+    useEffect(() => {
+      setDate(todayStr);
+    }, [todayStr]);
+
     const [stockInputs, setStockInputs] = useState({});
 
     const handleInitialStock = async (e) => {
@@ -823,7 +848,6 @@ export default function App() {
     );
   };
 
-  // شاشة خطأ المصادقة لتوجيه المستخدم
   if (authError) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 font-sans" dir="rtl">
@@ -862,7 +886,6 @@ export default function App() {
     );
   }
 
-  // --- شاشة تسجيل الدخول ---
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 font-sans" dir="rtl">

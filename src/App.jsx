@@ -69,7 +69,24 @@ export default function App() {
   
   // --- التحديث الجديد: جعل التاريخ ديناميكي ويتحدث تلقائياً ---
   const [todayStr, setTodayStr] = useState(() => new Date().toISOString().split('T')[0]);
-  const [selectedDate, setSelectedDate] = useState(todayStr);
+  
+  // حالات فترة التقرير
+  const [periodType, setPeriodType] = useState('day');
+  const [endDate, setEndDate] = useState(todayStr);
+  const [startDate, setStartDate] = useState(todayStr);
+
+  // تحديث تاريخ البداية بناءً على نوع الفترة
+  useEffect(() => {
+    if (periodType === 'day') setStartDate(endDate);
+    else if (periodType === 'week') {
+      const d = new Date(endDate); d.setDate(d.getDate() - 6);
+      setStartDate(d.toISOString().split('T')[0]);
+    }
+    else if (periodType === 'month') {
+      const d = new Date(endDate); d.setMonth(d.getMonth() - 1);
+      setStartDate(d.toISOString().split('T')[0]);
+    }
+  }, [periodType, endDate]);
 
   // ساعة داخلية للتحقق من تغير اليوم (عند منتصف الليل)
   useEffect(() => {
@@ -77,8 +94,7 @@ export default function App() {
       const currentDay = new Date().toISOString().split('T')[0];
       if (currentDay !== todayStr) {
         setTodayStr(currentDay);
-        // إذا كان المستخدم يراقب "اليوم"، اجعل اللوحة تنتقل لليوم الجديد تلقائياً
-        setSelectedDate(prev => prev === todayStr ? currentDay : prev);
+        setEndDate(prev => prev === todayStr ? currentDay : prev);
       }
     }, 60000); // يتحقق كل دقيقة
     return () => clearInterval(timer);
@@ -195,7 +211,7 @@ export default function App() {
     }
   };
 
-  // --- الحسابات المبنية على "التاريخ المختار" ---
+  // --- الحسابات المبنية على "الفترة المختارة" ---
 
   const uniqueDates = useMemo(() => {
     const dates = new Set(movements.map(m => m.date));
@@ -203,13 +219,15 @@ export default function App() {
     return Array.from(dates).sort((a, b) => b.localeCompare(a));
   }, [movements, todayStr]);
 
+  // المخزون يحسب دائماً حتى تاريخ النهاية
   const movementsUpToDate = useMemo(() => {
-    return movements.filter(m => m.date <= selectedDate);
-  }, [movements, selectedDate]);
+    return movements.filter(m => m.date <= endDate);
+  }, [movements, endDate]);
 
-  const movementsOnDate = useMemo(() => {
-    return movements.filter(m => m.date === selectedDate);
-  }, [movements, selectedDate]);
+  // المبيعات والرجوعات تحسب خلال الفترة المحددة فقط
+  const movementsInPeriod = useMemo(() => {
+    return movements.filter(m => m.date >= startDate && m.date <= endDate);
+  }, [movements, startDate, endDate]);
 
   const stockAsOfDate = useMemo(() => {
     let stock = {};
@@ -266,8 +284,7 @@ export default function App() {
     let totalPkgSales = 0;
     let totalReturns = 0;
 
-    movementsOnDate.forEach(m => {
-      // تم التحديث هنا للتعرف على جميع أنواع المبيعات الجديدة
+    movementsInPeriod.forEach(m => {
       const isSale = m.type.includes('بيع');
       const isReturn = m.type === 'مرتجع' || m.type.includes('رفض استلام');
 
@@ -277,14 +294,13 @@ export default function App() {
     });
 
     return { totalStock, totalSkuSales, totalPkgSales, totalReturns };
-  }, [stockAsOfDate, movementsOnDate]);
+  }, [stockAsOfDate, movementsInPeriod]);
 
-  const getDailyItemStats = (code, level) => {
+  const getPeriodItemStats = (code, level) => {
     let sales = 0;
     let returns = 0;
-    movementsOnDate.forEach(m => {
+    movementsInPeriod.forEach(m => {
       if (m.code === code && m.level === level) {
-        // تم التحديث هنا للتعرف على جميع أنواع المبيعات الجديدة
         const isSale = m.type.includes('بيع');
         const isReturn = m.type === 'مرتجع' || m.type.includes('رفض استلام');
         if (isSale) sales += parseInt(m.quantity);
@@ -294,40 +310,105 @@ export default function App() {
     return { sales, returns, net: sales - returns };
   };
 
-  const handleExportCSV = () => {
-    let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; 
-    
-    csvContent += `تقرير أسباركل للمخزون والمبيعات\n`;
-    csvContent += `تاريخ التقرير:,${selectedDate}\n\n`;
+  const handleExportExcel = () => {
+    const htmlContent = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+        <style>
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; direction: rtl; text-align: right; }
+          table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+          th { background-color: #1e293b; color: #ffffff; padding: 10px; border: 1px solid #cbd5e1; text-align: center; }
+          td { padding: 8px; border: 1px solid #cbd5e1; text-align: center; }
+          h2, h3 { color: #0f172a; margin-bottom: 10px; }
+          .kpi-table th { background-color: #f1f5f9; color: #334155; font-weight: bold; }
+          .bg-green { background-color: #dcfce7; color: #166534; font-weight: bold; }
+          .bg-orange { background-color: #ffedd5; color: #9a3412; font-weight: bold; }
+          .bg-red { background-color: #fee2e2; color: #991b1b; font-weight: bold; }
+          .text-blue { color: #1d4ed8; font-weight: bold; }
+          .text-red { color: #b91c1c; font-weight: bold; }
+        </style>
+      </head>
+      <body dir="rtl">
+        <h2>تقرير أسباركل للمخزون والمبيعات</h2>
+        <p><strong>فترة التقرير:</strong> من ${startDate} إلى ${endDate}</p>
 
-    csvContent += `المؤشرات العامة\n`;
-    csvContent += `إجمالي مخزون المنتجات,${dashboardStats.totalStock}\n`;
-    csvContent += `إجمالي بيع المنتجات المسجل,${dashboardStats.totalSkuSales}\n`;
-    csvContent += `صافي بيع البكجات المسجل,${dashboardStats.totalPkgSales}\n`;
-    csvContent += `إجمالي الرجوعات المسجلة,${dashboardStats.totalReturns}\n\n`;
+        <h3>المؤشرات العامة</h3>
+        <table class="kpi-table">
+          <tr>
+            <th>إجمالي مخزون المنتجات (الحالي)</th>
+            <th>بيع المنتجات المسجل (للفترة)</th>
+            <th>بيع البكجات المسجل (للفترة)</th>
+            <th>الرجوعات المسجلة (للفترة)</th>
+          </tr>
+          <tr>
+            <td>${dashboardStats.totalStock}</td>
+            <td class="text-blue">${dashboardStats.totalSkuSales}</td>
+            <td class="text-blue">${dashboardStats.totalPkgSales}</td>
+            <td class="text-red">${dashboardStats.totalReturns}</td>
+          </tr>
+        </table>
 
-    csvContent += `تحليل المنتجات الفردية\n`;
-    csvContent += `SKU,مخزون اليوم,مبيعات فعلية,رجوعات/رفض,صافي المبيعات,الحالة\n`;
-    PRODUCTS.forEach(sku => {
-      const qty = stockAsOfDate[sku] || 0;
-      const stats = getDailyItemStats(sku, 'منتج');
-      const status = qty > 150 ? 'جيد' : (qty > 50 ? 'متوسط' : 'منخفض');
-      csvContent += `${sku},${qty},${stats.sales},${stats.returns},${stats.net},${status}\n`;
-    });
-    csvContent += `\n`;
+        <h3>تحليل المنتجات الفردية</h3>
+        <table>
+          <tr>
+            <th>SKU</th>
+            <th>المخزون الحالي</th>
+            <th>مبيعات فعلية</th>
+            <th>رجوعات/رفض</th>
+            <th>صافي المبيعات</th>
+            <th>الحالة</th>
+          </tr>
+          ${PRODUCTS.map(sku => {
+            const qty = stockAsOfDate[sku] || 0;
+            const stats = getPeriodItemStats(sku, 'منتج');
+            const status = qty > 150 ? 'جيد' : (qty > 50 ? 'متوسط' : 'منخفض');
+            const statusClass = qty > 150 ? 'bg-green' : (qty > 50 ? 'bg-orange' : 'bg-red');
+            return `<tr>
+              <td style="text-align: right; font-weight: bold;">&#x200E;${sku}</td>
+              <td>${qty}</td>
+              <td class="text-blue">${stats.sales}</td>
+              <td class="text-red">${stats.returns}</td>
+              <td>${stats.net}</td>
+              <td class="${statusClass}">${status}</td>
+            </tr>`;
+          }).join('')}
+        </table>
 
-    csvContent += `تحليل البكجات والعروض\n`;
-    csvContent += `كود البكج,اسم البكج,أقصى بيع ممكن,مبيعات فعلية,رجوعات/رفض,صافي المبيعات,القرار\n`;
-    Object.entries(packageAvailabilityAsOfDate).forEach(([code, data]) => {
-      const stats = getDailyItemStats(code, 'بكج');
-      const decision = data.max > 150 ? 'أطلق حملات' : (data.max > 50 ? 'احذر' : 'إيقاف/توريد');
-      csvContent += `${code},${PACKAGES[code].name},${data.max},${stats.sales},${stats.returns},${stats.net},${decision}\n`;
-    });
+        <h3>تحليل البكجات والعروض</h3>
+        <table>
+          <tr>
+            <th>كود البكج</th>
+            <th>اسم البكج</th>
+            <th>أقصى بيع ممكن</th>
+            <th>مبيعات فعلية</th>
+            <th>رجوعات/رفض</th>
+            <th>صافي المبيعات</th>
+            <th>القرار</th>
+          </tr>
+          ${Object.entries(packageAvailabilityAsOfDate).map(([code, data]) => {
+            const stats = getPeriodItemStats(code, 'بكج');
+            const decision = data.max > 150 ? 'أطلق حملات' : (data.max > 50 ? 'احذر' : 'إيقاف/توريد');
+            const decisionClass = data.max > 150 ? 'bg-green' : (data.max > 50 ? 'bg-orange' : 'bg-red');
+            return `<tr>
+              <td style="text-align: right; font-weight: bold;">&#x200E;${code}</td>
+              <td style="text-align: right;">${PACKAGES[code].name}</td>
+              <td style="font-weight: bold;">${data.max}</td>
+              <td class="text-blue">${stats.sales}</td>
+              <td class="text-red">${stats.returns}</td>
+              <td>${stats.net}</td>
+              <td class="${decisionClass}">${decision}</td>
+            </tr>`;
+          }).join('')}
+        </table>
+      </body>
+      </html>
+    `;
 
-    const encodedUri = encodeURI(csvContent);
+    const blob = new Blob([htmlContent], { type: 'application/vnd.ms-excel;charset=utf-8' });
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `تقرير_اسباركل_${selectedDate}.csv`);
+    link.href = URL.createObjectURL(blob);
+    link.download = `تقرير_اسباركل_${endDate}.xls`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -339,7 +420,6 @@ export default function App() {
     return last7Dates.map(d => {
       let dailySales = 0;
       movements.forEach(m => {
-        // تم التحديث هنا للتعرف على جميع أنواع المبيعات الجديدة
         if (m.date === d && m.type.includes('بيع')) {
           dailySales += parseInt(m.quantity);
         }

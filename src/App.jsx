@@ -27,7 +27,8 @@ import {
 } from 'lucide-react';
 
 // --- إعدادات قاعدة البيانات السحابية (Firebase) ---
-import { initializeApp } from 'firebase/app';
+// تم الإصلاح الجذري هنا لمنع تعليق النظام عند التحديث (منع تشغيل التطبيق مرتين)
+import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
 
@@ -39,7 +40,9 @@ const firebaseConfig = {
   messagingSenderId: "75571875301",
   appId: "1:75571875301:web:bfe0465065e134d77cf30c"
 };
-const app = initializeApp(firebaseConfig);
+
+// حل مشكلة التعليق والشاشة البيضاء عند تحديث الكود
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-inventory-app';
@@ -160,6 +163,16 @@ export default function App() {
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
+  // شبكة أمان: إنهاء شاشة التحميل إجبارياً بعد 5 ثواني لمنع التعليق
+  useEffect(() => {
+    const fallbackTimer = setTimeout(() => {
+      setIsLoading(false);
+      setIsSettingsLoaded(true);
+      setIsPermissionsLoaded(true);
+    }, 5000);
+    return () => clearTimeout(fallbackTimer);
+  }, []);
+
   // 1. المصادقة
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -193,7 +206,7 @@ export default function App() {
       setIsPermissionsLoaded(true);
     }, (error) => {
       console.error("خطأ في جلب الصلاحيات:", error);
-      setIsPermissionsLoaded(true);
+      setIsPermissionsLoaded(true); // منع التعليق
     });
 
     return () => unsubscribe();
@@ -232,6 +245,7 @@ export default function App() {
       setIsSettingsLoaded(true);
     }, (error) => {
       console.error("خطأ في جلب الإعدادات:", error);
+      setIsSettingsLoaded(true); // منع التعليق
     });
 
     return () => unsubscribe();

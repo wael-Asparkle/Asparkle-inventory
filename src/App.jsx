@@ -141,7 +141,7 @@ export default function App() {
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // 1. المصادقة
+  // 1. المصادقة (إصلاح مشكلة شاشة التحميل هنا)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
@@ -149,8 +149,8 @@ export default function App() {
         setAuthError(null);
       } else {
         setUser(null);
-        setIsLoading(false);
       }
+      setIsLoading(false); // إخفاء التحميل الأولي سواء كان مسجل دخول أو لا
     });
     return () => unsubscribe();
   }, []);
@@ -164,10 +164,8 @@ export default function App() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setPermissions(data);
-        // تعيين صلاحية المستخدم الحالي (إذا لم يكن مسجلاً نجعله مشاهد)
         setCurrentUserRole(data[user.email] || 'viewer');
       } else {
-        // إذا لم يكن ملف الصلاحيات موجوداً (أول مستخدم)، اجعله مدير النظام فوراً
         const initialData = { [user.email]: 'admin' };
         setDoc(permsRef, initialData).catch(console.error);
         setPermissions(initialData);
@@ -1551,8 +1549,10 @@ export default function App() {
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 font-sans" dir="rtl">
         <div className="bg-white border border-gray-200 shadow-xl p-8 rounded-2xl w-full max-w-md">
           <div className="flex justify-center mb-6">
-            <div className="bg-blue-600 p-4 rounded-2xl shadow-lg">
-              <PackageOpen size={40} className="text-white" />
+            <div className="h-20 w-20 bg-white rounded-2xl shadow-lg flex items-center justify-center p-2 overflow-hidden border border-gray-100">
+               <img src="/logo.png" alt="أسباركل" className="w-full h-full object-contain" 
+                    onError={(e) => { e.target.onerror = null; e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%232563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>'; }}
+               />
             </div>
           </div>
           <h2 className="text-2xl font-black text-center text-gray-800 mb-2">نظام أسباركل للمخزون</h2>
@@ -1589,8 +1589,10 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
-              <div className="bg-blue-500 p-2 rounded-lg">
-                <PackageOpen size={24} className="text-white" />
+              <div className="h-10 w-10 bg-white rounded-lg flex items-center justify-center overflow-hidden p-1 shadow-sm">
+                 <img src="/logo.png" alt="أسباركل" className="w-full h-full object-contain" 
+                      onError={(e) => { e.target.onerror = null; e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%233b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>'; }}
+                 />
               </div>
               <div className="flex flex-col">
                 <span className="font-bold text-lg tracking-wide leading-none">نظام أسباركل</span>

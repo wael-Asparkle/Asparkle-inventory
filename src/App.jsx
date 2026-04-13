@@ -143,8 +143,8 @@ export default function App() {
         setAuthError(null);
       } else {
         setUser(null);
-        setIsLoading(false);
       }
+      setIsLoading(false); // تم نقل هذه إلى الخارج لتتوقف عجلة التحميل ويظهر تسجيل الدخول
     });
     return () => unsubscribe();
   }, []);
@@ -1384,7 +1384,7 @@ export default function App() {
     )
   }
 
-  if (isLoading || !isSettingsLoaded) {
+  if (isLoading || (user && !isSettingsLoaded)) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-4 text-blue-600 font-sans">
         <Loader2 className="animate-spin" size={48} />

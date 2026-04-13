@@ -32,6 +32,18 @@ import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
 
+// إضافة دالة تحميل مكتبة الإكسل (XLSX) ديناميكياً لتجنب مشاكل التوافق وقراءة الإكسل العادي
+const loadXLSX = async () => {
+  if (window.XLSX) return window.XLSX;
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    script.onload = () => resolve(window.XLSX);
+    script.onerror = reject;
+    document.body.appendChild(script);
+  });
+};
+
 const firebaseConfig = {
   apiKey: "AIzaSyCeHc-P80oM5hjc7yugdk-YVcRGnz8NOhE",
   authDomain: "asparkle-inventory.firebaseapp.com",
@@ -1262,119 +1274,134 @@ export default function App() {
       setFormData({ ...formData, quantity: 1, reference: '', note: '', date: todayStr });
     };
 
-    // ميزة قراءة ملف الـ CSV الذكية مع التعرف على الكمية وطريقة الدفع (بدون الكوبونات والمشاهير)
-    const handleFileUpload = (e) => {
+    // ميزة قراءة ملفات الإكسل (XLSX) والـ CSV الذكية مع التعرف على الكمية وطريقة الدفع
+    const handleFileUpload = async (e) => {
       const file = e.target.files[0];
       if (!file) return;
 
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const text = event.target.result;
-        const rows = parseCSV(text);
-        if(rows.length < 2) {
-          alert('الملف فارغ أو غير صالح');
-          return;
-        }
-
-        const headers = rows[0];
+      try {
+        const XLSX = await loadXLSX();
+        const reader = new FileReader();
         
-        // البحث عن أعمدة سلة الذكية
-        const orderIdCol = headers.findIndex(h => h.includes('رقم الطلب') || h.includes('رقم'));
-        const productCol = headers.findIndex(h => h.includes('نوع الطلب') || h.includes('المنتجات') || h.includes('اسم المنتج') || h.includes('اسماء'));
-        const qtyCol = headers.findIndex(h => h.includes('الكمية') || h.includes('العدد') || h === 'Qty');
-        const paymentCol = headers.findIndex(h => h.includes('طريقة الدفع') || h.includes('الدفع')); // لتمييز نوع الدفع للمبيعات
+        reader.onload = async (event) => {
+          const data = new Uint8Array(event.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          
+          // تحويل الشيت إلى مصفوفة (Array of arrays)
+          const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
-        const parsedMovements = [];
-        
-        for (let i = 1; i < rows.length; i++) {
-          const row = rows[i];
-          if(!row || row.length < 2 || !row[orderIdCol]) continue;
-          
-          let orderId = row[orderIdCol]?.replace(/["']/g, '').replace(/^\uFEFF/, ''); // إزالة الـ BOM إن وجد
-          let productStr = productCol !== -1 ? (row[productCol] || '') : '';
-          let paymentStr = paymentCol !== -1 ? (row[paymentCol] || '') : '';
-          
-          let qty = 1;
-          // محاولة أخذ الكمية من عمود مستقل أولاً
-          if (qtyCol !== -1 && row[qtyCol] && !isNaN(parseInt(row[qtyCol]))) {
-              qty = parseInt(row[qtyCol]);
-          } else {
-              // ذكاء اصطناعي: محاولة استخراج الكمية المكتوبة داخل اسم المنتج في سلة مثل (Qty: 2)
-              const qtyMatch = productStr.match(/Qty:\s*(\d+)/i);
-              if (qtyMatch) qty = parseInt(qtyMatch[1]);
+          if(rows.length < 2) {
+            alert('الملف فارغ أو غير صالح');
+            return;
           }
 
-          // خوارزمية ذكية لاكتشاف نوع البكج من النص (تعتمد على الصورة المطلوبة)
-          let mappedCode = null;
-          let mappedLevel = 'بكج';
+          const headers = rows[0].map(h => String(h || ''));
+          
+          // البحث عن أعمدة سلة الذكية
+          const orderIdCol = headers.findIndex(h => h.includes('رقم الطلب') || h.includes('رقم'));
+          const productCol = headers.findIndex(h => h.includes('نوع الطلب') || h.includes('المنتجات') || h.includes('اسم المنتج') || h.includes('اسماء'));
+          const qtyCol = headers.findIndex(h => h.includes('الكمية') || h.includes('العدد') || h === 'Qty');
+          const paymentCol = headers.findIndex(h => h.includes('طريقة الدفع') || h.includes('الدفع')); // لتمييز نوع الدفع للمبيعات
 
-          // 1- محاولة التقاط الـ SKU مباشرة إذا كان سلة كاتبه (SKU: asg002)
-          const skuMatch = productStr.match(/SKU:\s*([a-zA-Z0-9_-]+)/i);
-          if (skuMatch && packages[skuMatch[1]]) {
-             mappedCode = skuMatch[1];
-          } 
-          else if (productStr.includes('مجموعة سباركل الكاملة') || productStr.includes('مجموعة سبارك الكاملة')) {
-            mappedCode = 'asg002';
-          } else if (productStr.includes('بكج اسباركل') || productStr.includes('بكج التأسيس')) {
-            mappedCode = 'asg001';
-          } else if (productStr.includes('بكج العساف')) {
-            mappedCode = 'asg003';
-          } else if (productStr.includes('بكج الـ 7 عطور')) {
-            mappedCode = 'asg002';
-          } else {
-            // 2- البحث التلقائي في البكجات المعرفة سلفاً
-            Object.entries(packages).forEach(([code, pkg]) => {
-              if(productStr.includes(code) || productStr.includes(pkg.name)) {
-                mappedCode = code;
-              }
+          const parsedMovements = [];
+          
+          for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            if(!row || row.length === 0) continue;
+            
+            let orderId = row[orderIdCol] ? String(row[orderIdCol]).replace(/["']/g, '').replace(/^\uFEFF/, '') : '';
+            if(!orderId) continue;
+
+            let productStr = productCol !== -1 ? String(row[productCol] || '') : '';
+            let paymentStr = paymentCol !== -1 ? String(row[paymentCol] || '') : '';
+            
+            let qty = 1;
+            // محاولة أخذ الكمية من عمود مستقل أولاً
+            if (qtyCol !== -1 && row[qtyCol] !== undefined && !isNaN(parseInt(row[qtyCol]))) {
+                qty = parseInt(row[qtyCol]);
+            } else {
+                // ذكاء اصطناعي: محاولة استخراج الكمية المكتوبة داخل اسم المنتج في سلة مثل (Qty: 2)
+                const qtyMatch = productStr.match(/Qty:\s*(\d+)/i);
+                if (qtyMatch) qty = parseInt(qtyMatch[1]);
+            }
+
+            // خوارزمية ذكية لاكتشاف نوع البكج من النص (تعتمد على الصورة المطلوبة)
+            let mappedCode = null;
+            let mappedLevel = 'بكج';
+
+            // 1- محاولة التقاط الـ SKU مباشرة إذا كان سلة كاتبه (SKU: asg002)
+            const skuMatch = productStr.match(/SKU:\s*([a-zA-Z0-9_-]+)/i);
+            if (skuMatch && packages[skuMatch[1]]) {
+               mappedCode = skuMatch[1];
+            } 
+            else if (productStr.includes('مجموعة سباركل الكاملة') || productStr.includes('مجموعة سبارك الكاملة')) {
+              mappedCode = 'asg002';
+            } else if (productStr.includes('بكج اسباركل') || productStr.includes('بكج التأسيس')) {
+              mappedCode = 'asg001';
+            } else if (productStr.includes('بكج العساف')) {
+              mappedCode = 'asg003';
+            } else if (productStr.includes('بكج الـ 7 عطور')) {
+              mappedCode = 'asg002';
+            } else {
+              // 2- البحث التلقائي في البكجات المعرفة سلفاً
+              Object.entries(packages).forEach(([code, pkg]) => {
+                if(productStr.includes(code) || productStr.includes(pkg.name)) {
+                  mappedCode = code;
+                }
+              });
+            }
+
+            // 3- إذا لم يجد بكج، يبحث في المنتجات الفردية
+            if (!mappedCode) {
+              products.forEach(sku => {
+                if(productStr.includes(sku)) {
+                  mappedCode = sku;
+                  mappedLevel = 'منتج';
+                }
+              });
+            }
+
+            // افتراضي إذا لم يتعرف عليه أبداً
+            if (!mappedCode) {
+              mappedCode = Object.keys(packages)[0] || products[0];
+            }
+
+            // ذكاء اصطناعي: تحديد نوع الحركة بدقة من طريقة الدفع
+            let movType = 'بيع آلي (عبر الربط)'; // الافتراضي
+            
+            if (importMode === 'sales') {
+               if (paymentStr.includes('تمارا') || paymentStr.includes('تابي')) {
+                   movType = 'بيع (تمارا)';
+               } else if (paymentStr.includes('عند الاستلام') || paymentStr.includes('الدفع عند الاستلام')) {
+                   movType = 'بيع (دفع عند الاستلام)';
+               } else if (paymentStr !== '') {
+                   movType = 'بيع (دفع إلكتروني)';
+               }
+            } else {
+               movType = 'مرتجع (إلغاء رغبة العميل)'; // للرجيع
+            }
+            
+            parsedMovements.push({
+              date: todayStr,
+              level: mappedLevel,
+              code: mappedCode,
+              type: movType,
+              quantity: qty,
+              reference: orderId,
+              note: importMode === 'sales' ? 'استيراد مبيعات (مُوصل)' : 'استيراد رجيع (دعم فني)'
             });
           }
 
-          // 3- إذا لم يجد بكج، يبحث في المنتجات الفردية
-          if (!mappedCode) {
-            products.forEach(sku => {
-              if(productStr.includes(sku)) {
-                mappedCode = sku;
-                mappedLevel = 'منتج';
-              }
-            });
-          }
-
-          // افتراضي إذا لم يتعرف عليه أبداً
-          if (!mappedCode) {
-            mappedCode = Object.keys(packages)[0] || products[0];
-          }
-
-          // ذكاء اصطناعي: تحديد نوع الحركة بدقة من طريقة الدفع
-          let movType = 'بيع آلي (عبر الربط)'; // الافتراضي
-          
-          if (importMode === 'sales') {
-             if (paymentStr.includes('تمارا') || paymentStr.includes('تابي')) {
-                 movType = 'بيع (تمارا)';
-             } else if (paymentStr.includes('عند الاستلام') || paymentStr.includes('الدفع عند الاستلام')) {
-                 movType = 'بيع (دفع عند الاستلام)';
-             } else if (paymentStr !== '') {
-                 movType = 'بيع (دفع إلكتروني)';
-             }
-          } else {
-             movType = 'مرتجع (إلغاء رغبة العميل)'; // للرجيع
-          }
-          
-          parsedMovements.push({
-            date: todayStr,
-            level: mappedLevel,
-            code: mappedCode,
-            type: movType,
-            quantity: qty,
-            reference: orderId,
-            note: importMode === 'sales' ? 'استيراد مبيعات (مُوصل)' : 'استيراد رجيع (دعم فني)'
-          });
-        }
-
-        setImportPreview(parsedMovements);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      };
-      reader.readAsText(file, 'UTF-8');
+          setImportPreview(parsedMovements);
+          if (fileInputRef.current) fileInputRef.current.value = '';
+        };
+        reader.readAsArrayBuffer(file); // تم تغييرها لتقرأ الملفات كبيانات خام لتناسب الإكسل
+      } catch (err) {
+        console.error(err);
+        alert('حدث خطأ أثناء تحميل مكتبة قراءة الإكسل، تأكد من اتصالك بالإنترنت.');
+      }
     };
 
     const confirmImport = async () => {
@@ -1455,7 +1482,7 @@ export default function App() {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <h3 className="text-lg font-bold flex items-center gap-2 mb-1">
-                <FileSpreadsheet size={20} /> استيراد ذكي لملفات الإكسل (CSV)
+                <FileSpreadsheet size={20} /> استيراد ذكي لملفات الإكسل (XLSX / CSV)
               </h3>
               <p className="text-indigo-200 text-xs max-w-xl mb-4 leading-relaxed">
                 ارفع ملفات (تم التوصيل) لتسجيل المبيعات، أو ملفات (الدعم الفني والرجيع) لخصمها من المبيعات. النظام سيقرأ أرقام الطلبات ويتعرف على البكجات وطريقة الدفع تلقائياً.
@@ -1474,7 +1501,7 @@ export default function App() {
             </div>
             
             <div className="mt-4 md:mt-0">
-               <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" id="csv-upload" />
+               <input type="file" accept=".csv, .xlsx, .xls" ref={fileInputRef} onChange={handleFileUpload} className="hidden" id="csv-upload" />
                <label htmlFor="csv-upload" className="cursor-pointer flex items-center gap-2 bg-white text-indigo-900 px-5 py-3 rounded-lg font-bold text-sm shadow-md hover:bg-indigo-50 transition-colors">
                   <UploadCloud size={18} /> اختيار ورفع الملف
                </label>

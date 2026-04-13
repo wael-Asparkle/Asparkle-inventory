@@ -357,15 +357,13 @@ export default function App() {
           </div>
           <div className="flex-1">
             <p className="text-xs text-gray-500 font-bold mb-1">التاريخ المختار للوحة</p>
-            <select 
+            {/* التعديل هنا: تحويل القائمة المنسدلة إلى أداة اختيار تاريخ */}
+            <input 
+              type="date"
               className="border-gray-300 rounded-md border p-2 text-sm font-bold bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none w-full"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-            >
-              {uniqueDates.map(d => (
-                <option key={d} value={d}>{d === todayStr ? `اليوم (${d})` : d}</option>
-              ))}
-            </select>
+            />
           </div>
         </div>
         

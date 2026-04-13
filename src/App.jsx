@@ -40,22 +40,41 @@ const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-inventory-ap
 // --- البيانات الأساسية ---
 const PRODUCTS = ['9000901', '9000902', '9000904', '9000905', '9000906', '9000908', '9000909'];
 
+// 🔽 هنا يمكنك كتابة وتعديل أسماء القنوات التسويقية والمشاهير لكل كود 🔽
 const PACKAGES = {
   'asg001': { 
-    name: 'asg001', 
+    name: 'بكج التأسيس', 
+    group: 'بكج التأسيس',
+    channel: 'المتجر (عضوي)', 
     items: { '9000901': 1, '9000902': 1 } 
   },
   'asg002': { 
-    name: 'بكج الـ 7 عطور', 
+    name: 'مجموعة سبارك (كود المشهور)', 
+    group: 'مجموعة سبارك الكاملة',
+    channel: 'المشهور دستور', 
+    items: { '9000904': 1, '9000905': 1, '9000906': 1, '9000908': 1, '9000909': 1 } 
+  },
+  'asg003': { 
+    name: 'مجموعة سبارك (حملات السوشيال)', 
+    group: 'مجموعة سبارك الكاملة',
+    channel: 'سنابشات وتيك توك', 
+    items: { '9000904': 1, '9000905': 1, '9000906': 1, '9000908': 1, '9000909': 1 } 
+  },
+  'asg004': { 
+    name: 'مجموعة سبارك (حملات الرسائل)', 
+    group: 'مجموعة سبارك الكاملة',
+    channel: 'حملات الواتساب', 
     items: { '9000904': 1, '9000905': 1, '9000906': 1, '9000908': 1, '9000909': 1 } 
   }
 };
+// 🔼 -------------------------------------------------------- 🔼
 
 const MOVEMENT_TYPES = [
   { id: 'بيع (دفع إلكتروني)', type: 'out' },
   { id: 'بيع (تمارا)', type: 'out' },
   { id: 'بيع (دفع عند الاستلام)', type: 'out' },
   { id: 'بيع آلي (عبر الربط)', type: 'out'},
+  { id: 'بيع مجمع (إدخال سابق)', type: 'out'},
   { id: 'مرتجع', type: 'in' },
   { id: 'رفض استلام - رجوع للمخزون', type: 'in' },
   { id: 'تلف', type: 'out' },
@@ -327,6 +346,7 @@ export default function App() {
           .bg-red { background-color: #fee2e2; color: #991b1b; font-weight: bold; }
           .text-blue { color: #1d4ed8; font-weight: bold; }
           .text-red { color: #b91c1c; font-weight: bold; }
+          .text-purple { color: #6d28d9; font-weight: bold; }
         </style>
       </head>
       <body dir="rtl">
@@ -375,11 +395,12 @@ export default function App() {
           }).join('')}
         </table>
 
-        <h3>تحليل البكجات والعروض</h3>
+        <h3>تحليل البكجات والعروض (بحسب القناة والمشهور)</h3>
         <table>
           <tr>
             <th>كود البكج</th>
             <th>اسم البكج</th>
+            <th>القناة التسويقية</th>
             <th>أقصى بيع ممكن</th>
             <th>مبيعات فعلية</th>
             <th>رجوعات/رفض</th>
@@ -390,9 +411,11 @@ export default function App() {
             const stats = getPeriodItemStats(code, 'بكج');
             const decision = data.max > 150 ? 'أطلق حملات' : (data.max > 50 ? 'احذر' : 'إيقاف/توريد');
             const decisionClass = data.max > 150 ? 'bg-green' : (data.max > 50 ? 'bg-orange' : 'bg-red');
+            const channel = PACKAGES[code].channel || '-';
             return `<tr>
               <td style="text-align: right; font-weight: bold;">&#x200E;${code}</td>
               <td style="text-align: right;">${PACKAGES[code].name}</td>
+              <td class="text-purple">${channel}</td>
               <td style="font-weight: bold;">${data.max}</td>
               <td class="text-blue">${stats.sales}</td>
               <td class="text-red">${stats.returns}</td>
@@ -429,6 +452,38 @@ export default function App() {
   }, [uniqueDates, movements]);
 
   const maxSalesInTrend = Math.max(...trendData.map(d => d.sales), 1); 
+
+  // --- التحديث الجديد: تجميع القنوات لمقارنتها تحت كل منتج ---
+  const groupedPackagePerformance = useMemo(() => {
+    const groups = {};
+    
+    Object.keys(PACKAGES).forEach(code => {
+      const stats = getPeriodItemStats(code, 'بكج');
+      const groupName = PACKAGES[code].group || PACKAGES[code].name;
+      
+      if (!groups[groupName]) {
+        groups[groupName] = { groupName, totalSales: 0, packages: [] };
+      }
+      
+      groups[groupName].packages.push({
+        code,
+        name: PACKAGES[code].name,
+        channel: PACKAGES[code].channel || 'بدون قناة',
+        sales: stats.sales
+      });
+      groups[groupName].totalSales += stats.sales;
+    });
+
+    // ترتيب المجموعات من الأعلى مبيعاً
+    const sortedGroups = Object.values(groups).sort((a, b) => b.totalSales - a.totalSales);
+    
+    // ترتيب القنوات داخل كل مجموعة
+    sortedGroups.forEach(g => {
+      g.packages.sort((a, b) => b.sales - a.sales);
+    });
+    
+    return sortedGroups;
+  }, [movementsInPeriod]);
 
   // --- مكونات الواجهة ---
 
@@ -510,30 +565,79 @@ export default function App() {
         </div>
       </div>
 
-      <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-        <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
-          <BarChart3 size={18} className="text-blue-600" /> حركة إجمالي المبيعات (آخر 7 أيام)
-        </h3>
-        <div className="flex items-end gap-2 md:gap-4 h-48 pt-6">
-          {trendData.map((d, index) => {
-            const heightPercent = maxSalesInTrend > 0 ? (d.sales / maxSalesInTrend) * 100 : 0;
-            return (
-              <div key={index} className="flex-1 flex flex-col items-center gap-2 group">
-                <div className="w-full max-w-[40px] bg-blue-50 rounded-t-md relative flex items-end justify-center h-full border-b border-blue-100">
-                  <div 
-                    className="w-full bg-blue-500 rounded-t-md transition-all duration-700 ease-out group-hover:bg-blue-600 shadow-sm" 
-                    style={{ height: `${heightPercent}%`, minHeight: d.sales > 0 ? '4px' : '0' }}
-                  ></div>
-                  <span className="absolute -top-6 text-xs font-bold text-gray-700 opacity-80 group-hover:opacity-100 group-hover:-top-7 transition-all">
-                    {d.sales}
-                  </span>
-                </div>
-                <span className="text-[10px] md:text-xs text-gray-500 font-medium truncate w-full text-center" dir="ltr">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col">
+          <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
+            <BarChart3 size={18} className="text-blue-600" /> حركة إجمالي المبيعات (آخر 7 أيام)
+          </h3>
+          <div className="flex items-end gap-2 md:gap-4 h-48 pt-6 mt-auto">
+            {trendData.map((d, index) => {
+              const heightPercent = maxSalesInTrend > 0 ? (d.sales / maxSalesInTrend) * 100 : 0;
+              return (
+                <div key={index} className="flex-1 flex flex-col items-center gap-2 group">
+                  <div className="w-full max-w-[40px] bg-blue-50 rounded-t-md relative flex items-end justify-center h-full border-b border-blue-100">
+                    <div 
+                      className="w-full bg-blue-500 rounded-t-md transition-all duration-700 ease-out group-hover:bg-blue-600 shadow-sm" 
+                      style={{ height: `${heightPercent}%`, minHeight: d.sales > 0 ? '4px' : '0' }}
+                    ></div>
+                    <span className="absolute -top-6 text-xs font-bold text-gray-700 opacity-80 group-hover:opacity-100 group-hover:-top-7 transition-all">
+                      {d.sales}
+                    </span>
+                  </div>
+                  <span className="text-[10px] md:text-xs text-gray-500 font-medium truncate w-full text-center" dir="ltr">
                   {d.date.substring(5)}
                 </span>
               </div>
             );
           })}
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col max-h-[300px] overflow-hidden">
+          <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 shrink-0">
+            <PackageOpen size={18} className="text-purple-600" /> مقارنة أداء القنوات (حسب المنتج)
+          </h3>
+          <div className="flex-1 flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar">
+            {groupedPackagePerformance.map((group, gIdx) => {
+              // إيجاد القناة الأعلى مبيعاً في هذا المنتج لتنسيقها كفائز
+              const maxInGroup = Math.max(...group.packages.map(p => p.sales), 1);
+              
+              return (
+                <div key={gIdx} className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-100 shrink-0">
+                  <h4 className="text-xs font-black text-slate-700 border-b border-slate-200 pb-2 flex justify-between">
+                    <span>{group.groupName}</span>
+                    <span className="text-[10px] text-slate-500 font-bold bg-white px-2 py-0.5 rounded border">إجمالي: {group.totalSales}</span>
+                  </h4>
+                  <div className="space-y-3">
+                    {group.packages.map(pkg => {
+                      const widthPercent = (pkg.sales / maxInGroup) * 100;
+                      const isWinner = pkg.sales === maxInGroup && pkg.sales > 0;
+                      
+                      return (
+                        <div key={pkg.code} className="space-y-1.5">
+                          <div className="flex justify-between text-[11px] font-bold items-center">
+                            <span className={`truncate pr-1 flex items-center gap-1 ${isWinner ? 'text-gray-900' : 'text-gray-600'}`}>
+                              {isWinner && <span title="أفضل قناة" className="text-yellow-500 text-[14px]">🏆</span>}
+                              {pkg.channel}
+                            </span>
+                            <span className="text-gray-800 bg-white px-2 py-0.5 rounded shadow-sm border border-gray-200 text-[10px]">
+                              {pkg.sales} مبيعة
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                            <div 
+                              className={`h-1.5 rounded-full transition-all duration-700 ease-out ${isWinner ? 'bg-gradient-to-l from-yellow-500 to-yellow-400' : 'bg-gradient-to-l from-purple-500 to-purple-300'}`}
+                              style={{ width: `${widthPercent}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -598,6 +702,7 @@ export default function App() {
               <thead className="bg-gray-100 text-gray-600 border-b border-gray-200">
                 <tr>
                   <th className="p-2 font-bold whitespace-nowrap">كود البكج</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center">القناة / المشهور</th>
                   <th className="p-2 font-bold whitespace-nowrap text-center">أقصى بيع ممكن</th>
                   <th className="p-2 font-bold whitespace-nowrap text-center text-blue-700">مبيعات فعلية</th>
                   <th className="p-2 font-bold whitespace-nowrap text-center text-red-700">رجوعات/رفض</th>
@@ -611,12 +716,18 @@ export default function App() {
                   const stats = getPeriodItemStats(code, 'بكج');
                   const decision = data.max > 150 ? 'أطلق حملات' : (data.max > 50 ? 'احذر' : 'إيقاف/توريد');
                   const decisionColor = data.max > 150 ? 'text-green-600 bg-green-50' : (data.max > 50 ? 'text-orange-600 bg-orange-50' : 'text-red-600 bg-red-50');
+                  const channel = PACKAGES[code].channel || '-';
+                  const groupName = PACKAGES[code].group || '-';
 
                   return (
                     <tr key={code} className="hover:bg-gray-50">
                       <td className="p-2 font-bold text-gray-800 bg-gray-50 border-l border-gray-100">
                         {code}
-                        <div className="text-[10px] text-gray-400 font-normal">{PACKAGES[code].name}</div>
+                        <div className="text-[10px] text-gray-400 font-normal truncate max-w-[100px]" title={PACKAGES[code].name}>{PACKAGES[code].name}</div>
+                      </td>
+                      <td className="p-2 text-center text-[10px] space-y-1">
+                        <div className="font-bold text-gray-700 bg-gray-100 rounded px-1">{groupName}</div>
+                        <div className="font-bold text-purple-700 bg-purple-50/50 rounded px-1">{channel}</div>
                       </td>
                       <td className="p-2 text-center font-black text-indigo-700">{data.max}</td>
                       <td className="p-2 text-center font-bold text-blue-600">{stats.sales}</td>
@@ -701,7 +812,7 @@ export default function App() {
                 value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})}>
                 {formData.level === 'منتج' 
                   ? PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)
-                  : Object.keys(PACKAGES).map(p => <option key={p} value={p}>{p} - {PACKAGES[p].name}</option>)
+                  : Object.keys(PACKAGES).map(p => <option key={p} value={p}>{p} - {PACKAGES[p].name} ({PACKAGES[p].channel})</option>)
                 }
               </select>
             </div>

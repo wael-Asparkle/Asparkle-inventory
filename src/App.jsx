@@ -17,7 +17,9 @@ import {
   BarChart3,
   Trash2,
   Tags,
-  X
+  X,
+  Edit2,
+  Check
 } from 'lucide-react';
 
 // --- إعدادات قاعدة البيانات السحابية (Firebase) ---
@@ -492,6 +494,8 @@ export default function App() {
 
   const DefinitionsTab = () => {
     const [newSku, setNewSku] = useState('');
+    const [editingSku, setEditingSku] = useState(null);
+    const [editSkuValue, setEditSkuValue] = useState('');
     
     // Package form states
     const [pkgCode, setPkgCode] = useState('');
@@ -507,6 +511,21 @@ export default function App() {
       if (!newSku.trim() || products.includes(newSku.trim())) return;
       updateSettingsInCloud([...products, newSku.trim()], packages);
       setNewSku('');
+    };
+
+    const handleSaveEditProduct = (oldSku) => {
+      const newVal = editSkuValue.trim();
+      if (!newVal || newVal === oldSku) {
+        setEditingSku(null);
+        return;
+      }
+      if (products.includes(newVal)) {
+        alert("هذا الرمز موجود مسبقاً!");
+        return;
+      }
+      const newProducts = products.map(p => p === oldSku ? newVal : p);
+      updateSettingsInCloud(newProducts, packages);
+      setEditingSku(null);
     };
 
     const handleDeleteProduct = (sku) => {
@@ -552,6 +571,15 @@ export default function App() {
       setPkgCode(''); setPkgName(''); setPkgGroup(''); setPkgChannel(''); setPkgItems({});
     };
 
+    const handleEditPackageLoad = (code, pkg) => {
+      setPkgCode(code);
+      setPkgName(pkg.name);
+      setPkgGroup(pkg.group);
+      setPkgChannel(pkg.channel);
+      setPkgItems({ ...pkg.items });
+      document.getElementById('package-form')?.scrollIntoView({ behavior: 'smooth' });
+    };
+
     const handleDeletePackage = (code) => {
       if(window.confirm(`هل أنت متأكد من حذف البكج ${code}؟`)) {
         const newPackages = { ...packages };
@@ -559,6 +587,8 @@ export default function App() {
         updateSettingsInCloud(products, newPackages);
       }
     };
+
+    const isEditingPkg = Object.keys(packages).includes(pkgCode.trim());
 
     return (
       <div className="space-y-6 animate-in fade-in pb-10">
@@ -576,10 +606,32 @@ export default function App() {
              {products.length === 0 && <span className="text-sm text-gray-400">لا توجد منتجات معرفة.</span>}
              {products.map(sku => (
                <div key={sku} className="flex items-center gap-2 bg-blue-50 text-blue-800 px-3 py-1.5 rounded-lg border border-blue-100 font-bold text-sm">
-                 <span dir="ltr">{sku}</span>
-                 <button onClick={() => handleDeleteProduct(sku)} className="text-blue-400 hover:text-red-500 hover:bg-red-50 rounded-full p-0.5 transition-colors">
-                   <X size={14} />
-                 </button>
+                 {editingSku === sku ? (
+                   <div className="flex items-center gap-1">
+                     <input 
+                       type="text" 
+                       value={editSkuValue} 
+                       onChange={e => setEditSkuValue(e.target.value)} 
+                       className="p-1 text-xs border rounded w-24 outline-none text-left" 
+                       dir="ltr"
+                       autoFocus
+                     />
+                     <button onClick={() => handleSaveEditProduct(sku)} className="text-green-600 hover:bg-green-100 rounded p-1 transition-colors"><Check size={14} /></button>
+                     <button onClick={() => setEditingSku(null)} className="text-gray-400 hover:bg-gray-200 rounded p-1 transition-colors"><X size={14} /></button>
+                   </div>
+                 ) : (
+                   <>
+                     <span dir="ltr">{sku}</span>
+                     <div className="flex gap-1 mr-1 border-r border-blue-200 pr-2">
+                       <button onClick={() => { setEditingSku(sku); setEditSkuValue(sku); }} className="text-blue-400 hover:text-blue-600 transition-colors" title="تعديل الاسم">
+                         <Edit2 size={14} />
+                       </button>
+                       <button onClick={() => handleDeleteProduct(sku)} className="text-blue-400 hover:text-red-500 transition-colors" title="حذف المنتج">
+                         <X size={14} />
+                       </button>
+                     </div>
+                   </>
+                 )}
                </div>
              ))}
            </div>
@@ -612,9 +664,15 @@ export default function App() {
              {Object.keys(packages).length === 0 && <span className="text-sm text-gray-400 col-span-full">لا توجد بكجات معرفة.</span>}
              {Object.entries(packages).map(([code, pkg]) => (
                <div key={code} className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col relative group">
-                 <button onClick={() => handleDeletePackage(code)} className="absolute top-3 left-3 text-gray-400 hover:text-red-500 bg-white rounded-full p-1 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
-                   <Trash2 size={14} />
-                 </button>
+                 <div className="absolute top-3 left-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                   <button onClick={() => handleEditPackageLoad(code, pkg)} className="text-blue-400 hover:text-blue-600 bg-white rounded-full p-1.5 shadow-sm border border-gray-100" title="تعديل">
+                     <Edit2 size={14} />
+                   </button>
+                   <button onClick={() => handleDeletePackage(code)} className="text-gray-400 hover:text-red-500 bg-white rounded-full p-1.5 shadow-sm border border-gray-100" title="حذف">
+                     <Trash2 size={14} />
+                   </button>
+                 </div>
+
                  <div className="font-bold text-gray-800 mb-1 pr-6 truncate" title={pkg.name}>{pkg.name}</div>
                  <div className="text-xs text-indigo-600 font-mono mb-3 bg-indigo-50 inline-block px-2 py-0.5 rounded w-fit">{code}</div>
                  
@@ -641,13 +699,15 @@ export default function App() {
              ))}
            </div>
 
-           <div className="bg-gray-50 rounded-xl border border-gray-200 p-5">
-             <h4 className="font-bold text-sm text-gray-800 mb-4">✨ إنشاء بكج / كود تسويقي جديد</h4>
+           <div id="package-form" className={`rounded-xl border p-5 transition-colors ${isEditingPkg ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
+             <h4 className={`font-bold text-sm mb-4 ${isEditingPkg ? 'text-blue-800' : 'text-gray-800'}`}>
+               {isEditingPkg ? '✏️ تحديث بيانات البكج الحالي' : '✨ إنشاء بكج / كود تسويقي جديد'}
+             </h4>
              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                <div>
                  <label className="block text-xs font-bold text-gray-600 mb-1">كود البكج (مثال: asg005)</label>
-                 <input type="text" className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-purple-500 text-sm font-mono"
-                   value={pkgCode} onChange={e => setPkgCode(e.target.value)} />
+                 <input type="text" className={`w-full p-2 border rounded outline-none text-sm font-mono ${isEditingPkg ? 'bg-gray-100 cursor-not-allowed' : 'focus:ring-2 focus:ring-purple-500'}`}
+                   value={pkgCode} onChange={e => setPkgCode(e.target.value)} disabled={isEditingPkg} title={isEditingPkg ? 'لا يمكن تعديل كود البكج بعد إنشائه' : ''} />
                </div>
                <div>
                  <label className="block text-xs font-bold text-gray-600 mb-1">اسم البكج الواضح</label>
@@ -697,10 +757,16 @@ export default function App() {
                  )}
                </div>
 
-               <div className="md:col-span-4 mt-2">
-                 <button onClick={handleAddPackage} className="w-full bg-purple-600 hover:bg-purple-700 text-white p-3 rounded-lg font-bold flex justify-center items-center gap-2 transition-colors shadow-sm">
-                   <Plus size={18} /> اعتماد البكج الجديد
+               <div className="md:col-span-4 mt-2 flex gap-2">
+                 <button onClick={handleAddPackage} className={`flex-1 text-white p-3 rounded-lg font-bold flex justify-center items-center gap-2 transition-colors shadow-sm ${isEditingPkg ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
+                   {isEditingPkg ? <Edit2 size={18} /> : <Plus size={18} />}
+                   {isEditingPkg ? 'حفظ التعديلات' : 'اعتماد البكج الجديد'}
                  </button>
+                 {isEditingPkg && (
+                   <button onClick={() => {setPkgCode(''); setPkgName(''); setPkgGroup(''); setPkgChannel(''); setPkgItems({});}} className="bg-gray-200 hover:bg-gray-300 text-gray-700 p-3 rounded-lg font-bold transition-colors">
+                     إلغاء التعديل
+                   </button>
+                 )}
                </div>
              </div>
            </div>

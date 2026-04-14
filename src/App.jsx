@@ -23,16 +23,20 @@ import {
   Users,
   UploadCloud,
   FileSpreadsheet,
-  CheckCircle2
+  CheckCircle2,
+  DollarSign,
+  TrendingUp,
+  BellRing,
+  AlertOctagon,
+  Activity
 } from 'lucide-react';
 
 // --- إعدادات قاعدة البيانات السحابية (Firebase) ---
-// تم الإصلاح الجذري هنا لمنع تعليق النظام عند التحديث (منع تشغيل التطبيق مرتين)
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
 
-// إضافة دالة تحميل مكتبة الإكسل (XLSX) ديناميكياً لتجنب مشاكل التوافق وقراءة الإكسل العادي
+// دالة تحميل مكتبة الإكسل (XLSX) ديناميكياً
 const loadXLSX = async () => {
   if (window.XLSX) return window.XLSX;
   return new Promise((resolve, reject) => {
@@ -53,38 +57,33 @@ const firebaseConfig = {
   appId: "1:75571875301:web:bfe0465065e134d77cf30c"
 };
 
-// حل مشكلة التعليق والشاشة البيضاء عند تحديث الكود
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-inventory-app';
 
-// --- البيانات الأساسية ---
+// --- البيانات الأساسية و(التكاليف الافتراضية) ---
 const DEFAULT_PRODUCTS = ['9000901', '9000902', '9000904', '9000905', '9000906', '9000908', '9000909'];
+
+const DEFAULT_PRODUCT_COSTS = {
+  '9000901': 15, '9000902': 15, '9000904': 25, '9000905': 20, '9000906': 18, '9000908': 30, '9000909': 15
+};
 
 const DEFAULT_PACKAGES = {
   'asg001': { 
-    name: 'بكج اسباركل', 
-    group: 'بكج اسباركل',
-    channel: 'المتجر (عضوي)', 
+    name: 'بكج اسباركل', group: 'بكج اسباركل', channel: 'المتجر (عضوي)', price: 150,
     items: { '9000901': 1, '9000902': 1 } 
   },
   'asg002': { 
-    name: 'مجموعة سبارك (كود المشهور)', 
-    group: 'مجموعة سبارك الكاملة',
-    channel: 'المشهور دستور', 
+    name: 'مجموعة سبارك (كود المشهور)', group: 'مجموعة سبارك الكاملة', channel: 'المشهور دستور', price: 217,
     items: { '9000904': 1, '9000905': 1, '9000906': 1, '9000908': 1, '9000909': 1 } 
   },
   'asg003': { 
-    name: 'مجموعة سبارك (حملات السوشيال)', 
-    group: 'مجموعة سبارك الكاملة',
-    channel: 'سنابشات وتيك توك', 
+    name: 'مجموعة سبارك (حملات السوشيال)', group: 'مجموعة سبارك الكاملة', channel: 'سنابشات وتيك توك', price: 217,
     items: { '9000904': 1, '9000905': 1, '9000906': 1, '9000908': 1, '9000909': 1 } 
   },
   'asg004': { 
-    name: 'مجموعة سبارك (حملات الرسائل)', 
-    group: 'مجموعة سبارك الكاملة',
-    channel: 'حملات الواتساب', 
+    name: 'مجموعة سبارك (حملات الرسائل)', group: 'مجموعة سبارك الكاملة', channel: 'حملات الواتساب', price: 217,
     items: { '9000904': 1, '9000905': 1, '9000906': 1, '9000908': 1, '9000909': 1 } 
   }
 };
@@ -104,28 +103,14 @@ const MOVEMENT_TYPES = [
   { id: 'دخول بضاعة جديدة', type: 'in' }
 ];
 
-// دالة لفك تشفير ملفات الـ CSV بشكل صحيح
-const parseCSV = (str) => {
-  const arr = [];
-  let quote = false;
-  let row = 0, col = 0;
-  for (let c = 0; c < str.length; c++) {
-      let cc = str[c], nc = str[c+1];
-      arr[row] = arr[row] || [];
-      arr[row][col] = arr[row][col] || '';
-      if (cc === '"' && quote && nc === '"') { arr[row][col] += cc; ++c; continue; }
-      if (cc === '"') { quote = !quote; continue; }
-      if (cc === ',' && !quote) { ++col; continue; }
-      if (cc === '\n' && !quote) { ++row; col = 0; continue; }
-      arr[row][col] += cc;
-  }
-  return arr.map(row => row.map(cell => cell.trim().replace(/\r/g, '')));
+const safeConfirm = (msg) => {
+  if (typeof window !== 'undefined') return window.confirm(msg);
+  return false;
 };
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   
-  // --- حالات التاريخ وفترة التقرير ---
   const [todayStr, setTodayStr] = useState(() => new Date().toISOString().split('T')[0]);
   const [periodType, setPeriodType] = useState('day');
   const [endDate, setEndDate] = useState(todayStr);
@@ -143,23 +128,12 @@ export default function App() {
     }
   }, [periodType, endDate]);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const currentDay = new Date().toISOString().split('T')[0];
-      if (currentDay !== todayStr) {
-        setTodayStr(currentDay);
-        setEndDate(prev => prev === todayStr ? currentDay : prev);
-      }
-    }, 60000); 
-    return () => clearInterval(timer);
-  }, [todayStr]);
-
-  // --- حالات الاتصال وقاعدة البيانات ---
   const [user, setUser] = useState(null);
   const [movements, setMovements] = useState([]);
   
   const [products, setProducts] = useState([]);
   const [packages, setPackages] = useState({});
+  const [productCosts, setProductCosts] = useState({});
   const [isSettingsLoaded, setIsSettingsLoaded] = useState(false);
 
   const [permissions, setPermissions] = useState({});
@@ -175,35 +149,23 @@ export default function App() {
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // شبكة أمان: إنهاء شاشة التحميل إجبارياً بعد 5 ثواني لمنع التعليق
   useEffect(() => {
-    const fallbackTimer = setTimeout(() => {
-      setIsLoading(false);
-      setIsSettingsLoaded(true);
-      setIsPermissionsLoaded(true);
-    }, 5000);
+    const fallbackTimer = setTimeout(() => { setIsLoading(false); }, 5000);
     return () => clearTimeout(fallbackTimer);
   }, []);
 
-  // 1. المصادقة
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-        setAuthError(null);
-      } else {
-        setUser(null);
-      }
+      if (currentUser) { setUser(currentUser); setAuthError(null); } 
+      else { setUser(null); }
       setIsLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
-  // 2. جلب صلاحيات المستخدمين
   useEffect(() => {
     if (!user) return;
     const permsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'permissions');
-    
     const unsubscribe = onSnapshot(permsRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -216,15 +178,10 @@ export default function App() {
         setCurrentUserRole('admin');
       }
       setIsPermissionsLoaded(true);
-    }, (error) => {
-      console.error("خطأ في جلب الصلاحيات:", error);
-      setIsPermissionsLoaded(true); // منع التعليق
-    });
-
+    }, (error) => { console.error(error); setIsPermissionsLoaded(true); });
     return () => unsubscribe();
   }, [user]);
 
-  // 3. جلب الحركات السحابية
   useEffect(() => {
     if (!user) return;
     const movementsCollection = collection(db, 'artifacts', appId, 'public', 'data', 'movements');
@@ -232,46 +189,43 @@ export default function App() {
       const fetchedMovements = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       fetchedMovements.sort((a, b) => b.timestamp - a.timestamp);
       setMovements(fetchedMovements);
-    }, (error) => {
-      console.error("خطأ في جلب الحركات:", error);
-    });
+    }, (error) => { console.error(error); });
     return () => unsubscribe();
   }, [user]);
 
-  // 4. جلب وتحديث (المنتجات والبكجات)
   useEffect(() => {
     if (!user) return;
     const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'definitions');
-    
     const unsubscribe = onSnapshot(settingsRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setProducts(data.products || []);
         setPackages(data.packages || {});
+        setProductCosts(data.productCosts || {});
       } else {
         setDoc(settingsRef, {
           products: DEFAULT_PRODUCTS,
-          packages: DEFAULT_PACKAGES
-        }).catch(err => console.error("خطأ في تهيئة الإعدادات:", err));
+          packages: DEFAULT_PACKAGES,
+          productCosts: DEFAULT_PRODUCT_COSTS
+        }).catch(console.error);
       }
       setIsSettingsLoaded(true);
-    }, (error) => {
-      console.error("خطأ في جلب الإعدادات:", error);
-      setIsSettingsLoaded(true); // منع التعليق
-    });
-
+    }, (error) => { console.error(error); setIsSettingsLoaded(true); });
     return () => unsubscribe();
   }, [user]);
 
-  const updateSettingsInCloud = async (newProducts, newPackages) => {
+  const updateSettingsInCloud = async (newProducts, newPackages, newCosts) => {
     if (!user) return;
     setIsSyncing(true);
     try {
       const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'definitions');
-      await setDoc(settingsRef, { products: newProducts, packages: newPackages }, { merge: true });
+      await setDoc(settingsRef, { 
+        products: newProducts, 
+        packages: newPackages,
+        productCosts: newCosts || productCosts
+      }, { merge: true });
     } catch (error) {
-      console.error("خطأ في تحديث الإعدادات:", error);
-      alert('حدث خطأ أثناء حفظ التعديلات');
+      console.error(error); alert('حدث خطأ أثناء حفظ التعديلات');
     } finally {
       setIsSyncing(false);
     }
@@ -279,20 +233,13 @@ export default function App() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setIsLoggingIn(true);
-    setLoginError('');
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (error) {
-      setLoginError('البريد الإلكتروني أو كلمة المرور غير صحيحة.');
-    } finally {
-      setIsLoggingIn(false);
-    }
+    setIsLoggingIn(true); setLoginError('');
+    try { await signInWithEmailAndPassword(auth, email, password); } 
+    catch (error) { setLoginError('البريد الإلكتروني أو كلمة المرور غير صحيحة.'); } 
+    finally { setIsLoggingIn(false); }
   };
 
-  const handleLogout = async () => {
-    try { await signOut(auth); } catch (error) { console.error(error); }
-  };
+  const handleLogout = async () => { try { await signOut(auth); } catch (error) { console.error(error); } };
 
   const addMovementToCloud = async (data) => {
     if (!user) return;
@@ -301,39 +248,42 @@ export default function App() {
       const movementId = `mov_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
       const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'movements', movementId);
       await setDoc(docRef, { ...data, timestamp: Date.now() });
-    } catch (error) {
-      setAuthError("حدث خطأ أثناء حفظ البيانات.");
-    } finally {
-      setIsSyncing(false);
-    }
+    } catch (error) { setAuthError("حدث خطأ أثناء حفظ البيانات."); } 
+    finally { setIsSyncing(false); }
   };
 
   const deleteMovementFromCloud = async (id) => {
     if (!user) return;
     setIsSyncing(true);
-    try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'movements', id));
-    } catch (error) {
-      setAuthError("حدث خطأ أثناء محاولة الحذف.");
-    } finally {
-      setIsSyncing(false);
-    }
+    try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'movements', id)); } 
+    catch (error) { setAuthError("حدث خطأ أثناء محاولة الحذف."); } 
+    finally { setIsSyncing(false); }
   };
 
-  // --- الحسابات والعمليات ---
+  // --- التحسينات المعمارية والأداء (Pre-processing & Profitability) ---
+  
+  const parsedMovements = useMemo(() => {
+    return movements.map(m => {
+      const qty = parseInt(m.quantity) || 0; 
+      const isSale = m.type && m.type.includes('بيع');
+      const isReturn = m.type && (m.type.includes('مرتجع') || m.type.includes('رفض'));
+      return { ...m, qty, isSale, isReturn };
+    });
+  }, [movements]);
+
   const uniqueDates = useMemo(() => {
-    const dates = new Set(movements.map(m => m.date));
+    const dates = new Set(parsedMovements.map(m => m.date));
     dates.add(todayStr); 
     return Array.from(dates).sort((a, b) => b.localeCompare(a));
-  }, [movements, todayStr]);
+  }, [parsedMovements, todayStr]);
 
   const movementsUpToDate = useMemo(() => {
-    return movements.filter(m => m.date <= endDate);
-  }, [movements, endDate]);
+    return parsedMovements.filter(m => m.date <= endDate);
+  }, [parsedMovements, endDate]);
 
   const movementsInPeriod = useMemo(() => {
-    return movements.filter(m => m.date >= startDate && m.date <= endDate);
-  }, [movements, startDate, endDate]);
+    return parsedMovements.filter(m => m.date >= startDate && m.date <= endDate);
+  }, [parsedMovements, startDate, endDate]);
 
   const stockAsOfDate = useMemo(() => {
     let stock = {};
@@ -342,18 +292,14 @@ export default function App() {
     movementsUpToDate.forEach(mov => {
       const isOut = MOVEMENT_TYPES.find(t => t.id === mov.type)?.type === 'out';
       const multiplier = isOut ? -1 : 1;
-      const qty = parseInt(mov.quantity) || 0;
+      const qty = mov.qty;
 
       if (mov.level === 'منتج') {
-        if (stock[mov.code] !== undefined) {
-          stock[mov.code] += (qty * multiplier);
-        }
+        if (stock[mov.code] !== undefined) stock[mov.code] += (qty * multiplier);
       } else if (mov.level === 'بكج' && packages[mov.code]) {
         const pkgItems = packages[mov.code].items;
         Object.entries(pkgItems).forEach(([sku, requiredQty]) => {
-          if (stock[sku] !== undefined) {
-            stock[sku] += (qty * requiredQty * multiplier);
-          }
+          if (stock[sku] !== undefined) stock[sku] += (qty * requiredQty * multiplier);
         });
       }
     });
@@ -389,32 +335,82 @@ export default function App() {
     let totalSkuSales = 0;
     let totalPkgSales = 0;
     let totalReturns = 0;
+    
+    let totalRevenue = 0;
+    let totalCost = 0;
 
     movementsInPeriod.forEach(m => {
-      const isSale = m.type.includes('بيع');
-      const isReturn = m.type.includes('مرتجع') || m.type.includes('رفض استلام');
-
-      if (isSale && m.level === 'منتج') totalSkuSales += parseInt(m.quantity);
-      if (isSale && m.level === 'بكج') totalPkgSales += parseInt(m.quantity);
-      if (isReturn) totalReturns += parseInt(m.quantity);
+      if (m.isSale) {
+        if (m.level === 'منتج') {
+          totalSkuSales += m.qty;
+          const cost = productCosts[m.code] || 0;
+          totalCost += cost * m.qty;
+          totalRevenue += cost * m.qty; // افتراض الإيراد للمنتج الخام = التكلفة للتبسيط حالياً
+        }
+        if (m.level === 'بكج' && packages[m.code]) {
+          totalPkgSales += m.qty;
+          const pkg = packages[m.code];
+          const price = pkg.price || 0;
+          totalRevenue += price * m.qty;
+          
+          let pkgCost = 0;
+          Object.entries(pkg.items).forEach(([sku, reqQty]) => {
+            pkgCost += (productCosts[sku] || 0) * reqQty;
+          });
+          totalCost += pkgCost * m.qty;
+        }
+      }
+      if (m.isReturn) {
+        totalReturns += m.qty;
+        if (m.level === 'بكج' && packages[m.code]) {
+          const pkg = packages[m.code];
+          totalRevenue -= (pkg.price || 0) * m.qty; // خصم المرتجعات من الإيراد
+          
+          let pkgCost = 0;
+          Object.entries(pkg.items).forEach(([sku, reqQty]) => {
+            pkgCost += (productCosts[sku] || 0) * reqQty;
+          });
+          totalCost -= pkgCost * m.qty;
+        }
+      }
     });
 
-    return { totalStock, totalSkuSales, totalPkgSales, totalReturns };
-  }, [stockAsOfDate, movementsInPeriod]);
+    const netSales = totalPkgSales + totalSkuSales - totalReturns;
+    const totalProfit = totalRevenue - totalCost;
+
+    return { totalStock, netSales, totalReturns, totalRevenue, totalCost, totalProfit };
+  }, [stockAsOfDate, movementsInPeriod, packages, productCosts]);
 
   const getPeriodItemStats = (code, level) => {
     let sales = 0;
     let returns = 0;
     movementsInPeriod.forEach(m => {
       if (m.code === code && m.level === level) {
-        const isSale = m.type.includes('بيع');
-        const isReturn = m.type.includes('مرتجع') || m.type.includes('رفض استلام');
-        if (isSale) sales += parseInt(m.quantity);
-        if (isReturn) returns += parseInt(m.quantity);
+        if (m.isSale) sales += m.qty;
+        if (m.isReturn) returns += m.qty;
       }
     });
     return { sales, returns, net: sales - returns };
   };
+
+  const smartAlerts = useMemo(() => {
+    const alerts = [];
+    products.forEach(sku => {
+      const qty = stockAsOfDate[sku] || 0;
+      if (qty < 30 && qty > 0) {
+        alerts.push({ type: 'danger', msg: `SKU (${sku}) يوشك على النفاد! متبقي ${qty} حبة فقط.` });
+      } else if (qty === 0) {
+        alerts.push({ type: 'critical', msg: `SKU (${sku}) نفد تماماً من المخزون!` });
+      }
+    });
+
+    Object.entries(packageAvailabilityAsOfDate).forEach(([code, data]) => {
+      if (data.max < 20 && data.max > 0) {
+        alerts.push({ type: 'warning', msg: `البكج (${packages[code]?.name}) مهدد بالتوقف، يكفي لـ ${data.max} طلبات فقط بسبب نقص المنتج ${data.criticalSku}.` });
+      }
+    });
+    return alerts;
+  }, [stockAsOfDate, packageAvailabilityAsOfDate, products, packages]);
 
   const handleExportExcel = () => {
     const htmlContent = `
@@ -437,80 +433,58 @@ export default function App() {
         </style>
       </head>
       <body dir="rtl">
-        <h2>تقرير أسباركل للمخزون والمبيعات</h2>
+        <h2>برج مراقبة أسباركل المالي والتشغيلي</h2>
         <p><strong>فترة التقرير:</strong> من ${startDate} إلى ${endDate}</p>
 
-        <h3>المؤشرات العامة</h3>
+        <h3>المؤشرات العامة المحدثة</h3>
         <table class="kpi-table">
           <tr>
-            <th>إجمالي مخزون المنتجات (الحالي)</th>
-            <th>بيع المنتجات المسجل (للفترة)</th>
-            <th>بيع البكجات المسجل (للفترة)</th>
-            <th>الرجوعات المسجلة (للفترة)</th>
+            <th>إجمالي المخزون</th>
+            <th>المبيعات الصافية</th>
+            <th>المرتجعات</th>
+            <th>الإيرادات (SAR)</th>
+            <th>الربح الصافي (SAR)</th>
           </tr>
           <tr>
             <td>${dashboardStats.totalStock}</td>
-            <td class="text-blue">${dashboardStats.totalSkuSales}</td>
-            <td class="text-blue">${dashboardStats.totalPkgSales}</td>
+            <td class="text-blue">${dashboardStats.netSales}</td>
             <td class="text-red">${dashboardStats.totalReturns}</td>
+            <td class="text-green">${dashboardStats.totalRevenue.toLocaleString()}</td>
+            <td class="text-purple">${dashboardStats.totalProfit.toLocaleString()}</td>
           </tr>
         </table>
 
-        <h3>تحليل المنتجات الفردية</h3>
-        <table>
-          <tr>
-            <th>SKU</th>
-            <th>المخزون الحالي</th>
-            <th>مبيعات فعلية</th>
-            <th>رجوعات/رفض</th>
-            <th>صافي المبيعات</th>
-            <th>الحالة</th>
-          </tr>
-          ${products.map(sku => {
-            const qty = stockAsOfDate[sku] || 0;
-            const stats = getPeriodItemStats(sku, 'منتج');
-            const status = qty > 150 ? 'جيد' : (qty > 50 ? 'متوسط' : 'منخفض');
-            const statusClass = qty > 150 ? 'bg-green' : (qty > 50 ? 'bg-orange' : 'bg-red');
-            return `<tr>
-              <td style="text-align: right; font-weight: bold;">&#x200E;${sku}</td>
-              <td>${qty}</td>
-              <td class="text-blue">${stats.sales}</td>
-              <td class="text-red">${stats.returns}</td>
-              <td>${stats.net}</td>
-              <td class="${statusClass}">${status}</td>
-            </tr>`;
-          }).join('')}
-        </table>
-
-        <h3>تحليل البكجات والعروض (بحسب القناة والمشهور)</h3>
+        <h3>تحليل البكجات التسويقية و (ROI)</h3>
         <table>
           <tr>
             <th>كود البكج</th>
             <th>اسم البكج</th>
-            <th>المجموعة الأساسية</th>
             <th>القناة التسويقية</th>
             <th>أقصى بيع ممكن</th>
-            <th>مبيعات فعلية</th>
-            <th>رجوعات/رفض</th>
             <th>صافي المبيعات</th>
-            <th>القرار</th>
+            <th>إجمالي الإيراد</th>
+            <th>إجمالي الربح</th>
           </tr>
           ${Object.entries(packageAvailabilityAsOfDate).map(([code, data]) => {
             const stats = getPeriodItemStats(code, 'بكج');
-            const decision = data.max > 150 ? 'أطلق حملات' : (data.max > 50 ? 'احذر' : 'إيقاف/توريد');
-            const decisionClass = data.max > 150 ? 'bg-green' : (data.max > 50 ? 'bg-orange' : 'bg-red');
-            const channel = packages[code].channel || '-';
-            const group = packages[code].group || '-';
+            const pkg = packages[code];
+            const channel = pkg.channel || '-';
+            const price = pkg.price || 0;
+            let pkgCost = 0;
+            Object.entries(pkg.items).forEach(([sku, reqQty]) => { pkgCost += (productCosts[sku] || 0) * reqQty; });
+            const profitPerUnit = price - pkgCost;
+            
+            const revenue = stats.net * price;
+            const profit = stats.net * profitPerUnit;
+
             return `<tr>
               <td style="text-align: right; font-weight: bold;">&#x200E;${code}</td>
-              <td style="text-align: right;">${packages[code].name}</td>
-              <td style="text-align: right;">${group}</td>
+              <td style="text-align: right;">${pkg.name}</td>
               <td class="text-purple">${channel}</td>
               <td style="font-weight: bold;">${data.max}</td>
-              <td class="text-blue">${stats.sales}</td>
-              <td class="text-red">${stats.returns}</td>
-              <td>${stats.net}</td>
-              <td class="${decisionClass}">${decision}</td>
+              <td class="text-blue">${stats.net}</td>
+              <td class="text-green">${revenue.toLocaleString()}</td>
+              <td class="text-purple">${profit.toLocaleString()}</td>
             </tr>`;
           }).join('')}
         </table>
@@ -521,7 +495,7 @@ export default function App() {
     const blob = new Blob([htmlContent], { type: 'application/vnd.ms-excel;charset=utf-8' });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `تقرير_اسباركل_${endDate}.xls`;
+    link.download = `تقرير_ارباح_اسباركل_${endDate}.xls`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -531,44 +505,60 @@ export default function App() {
     const last7Dates = uniqueDates.slice(0, 7).reverse();
     return last7Dates.map(d => {
       let dailySales = 0;
-      movements.forEach(m => {
-        if (m.date === d && m.type.includes('بيع')) dailySales += parseInt(m.quantity);
+      parsedMovements.forEach(m => {
+        if (m.date === d && m.isSale) dailySales += m.qty;
       });
       return { date: d, sales: dailySales };
     });
-  }, [uniqueDates, movements]);
+  }, [uniqueDates, parsedMovements]);
 
-  const maxSalesInTrend = Math.max(...trendData.map(d => d.sales), 1); 
+  const maxSalesInTrend = Math.max(...trendData.map(d => d.sales || 0), 1); 
 
   const groupedPackagePerformance = useMemo(() => {
     const groups = {};
     Object.keys(packages).forEach(code => {
       const stats = getPeriodItemStats(code, 'بكج');
-      const groupName = packages[code].group || packages[code].name;
+      const pkg = packages[code];
+      const groupName = pkg.group || pkg.name;
       
-      if (!groups[groupName]) groups[groupName] = { groupName, totalSales: 0, pkgs: [] };
+      let pkgCost = 0;
+      if (pkg.items) {
+         Object.entries(pkg.items).forEach(([sku, reqQty]) => {
+            pkgCost += (productCosts[sku] || 0) * reqQty;
+         });
+      }
+      const price = pkg.price || 0;
+      const profitPerUnit = price - pkgCost;
+      
+      if (!groups[groupName]) groups[groupName] = { groupName, totalSales: 0, totalRevenue: 0, totalProfit: 0, pkgs: [] };
+      
+      const netSales = stats.net;
       
       groups[groupName].pkgs.push({
         code,
-        name: packages[code].name,
-        channel: packages[code].channel || 'بدون قناة',
-        sales: stats.sales
+        name: pkg.name,
+        channel: pkg.channel || 'بدون قناة',
+        sales: netSales,
+        revenue: netSales * price,
+        profit: netSales * profitPerUnit
       });
-      groups[groupName].totalSales += stats.sales;
+      
+      groups[groupName].totalSales += netSales;
+      groups[groupName].totalRevenue += netSales * price;
+      groups[groupName].totalProfit += netSales * profitPerUnit;
     });
 
-    const sortedGroups = Object.values(groups).sort((a, b) => b.totalSales - a.totalSales);
-    sortedGroups.forEach(g => g.pkgs.sort((a, b) => b.sales - a.sales));
+    const sortedGroups = Object.values(groups).sort((a, b) => b.totalProfit - a.totalProfit);
+    sortedGroups.forEach(g => g.pkgs.sort((a, b) => b.profit - a.profit));
     return sortedGroups;
-  }, [movementsInPeriod, packages]);
+  }, [movementsInPeriod, packages, productCosts]);
 
-  // ======= بداية دالة renderDashboard المفقودة =======
   const renderDashboard = () => (
     <div className="space-y-6 animate-in fade-in">
       <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full lg:w-auto">
           <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg hidden sm:block">
-            <CalendarDays size={24} />
+            <Activity size={24} />
           </div>
           
           <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
@@ -616,28 +606,54 @@ export default function App() {
             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-bold text-sm transition-colors shadow-sm w-full sm:w-auto justify-center"
           >
             <Download size={16} />
-            تصدير التقرير (Excel)
+            تصدير التقرير والربحية
           </button>
         </div>
       </div>
 
+      {/* نظام التنبيهات الذكية */}
+      {smartAlerts.length > 0 && (
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-red-800 font-bold">
+            <BellRing size={18} className="animate-pulse" /> تنبيهات تشغيلية هامة
+          </div>
+          <div className="space-y-1">
+            {smartAlerts.map((alert, i) => (
+              <div key={i} className={`text-xs font-bold flex items-center gap-2 ${alert.type === 'critical' ? 'text-red-700' : alert.type === 'danger' ? 'text-orange-700' : 'text-amber-600'}`}>
+                <AlertOctagon size={14} /> {alert.msg}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* تحسين شكل بطاقات الـ KPI لتناسب SaaS Level */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-          <p className="text-xs text-gray-500 mb-1 font-bold">إجمالي مخزون المنتجات</p>
-          <h3 className="text-2xl font-black text-gray-800">{dashboardStats.totalStock}</h3>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-          <p className="text-xs text-gray-500 mb-1 font-bold">بيع المنتجات (للفترة)</p>
-          <h3 className="text-2xl font-black text-blue-600">{dashboardStats.totalSkuSales}</h3>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-          <p className="text-xs text-gray-500 mb-1 font-bold">بيع البكجات (للفترة)</p>
-          <h3 className="text-2xl font-black text-green-600">{dashboardStats.totalPkgSales}</h3>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-          <p className="text-xs text-gray-500 mb-1 font-bold">الرجوعات (للفترة)</p>
-          <h3 className="text-2xl font-black text-red-600">{dashboardStats.totalReturns}</h3>
-        </div>
+        {[
+          { title: "صافي المبيعات", value: dashboardStats.netSales, icon: <Package size={20}/>, color: "blue" },
+          { title: "الإيرادات", value: `${dashboardStats.totalRevenue.toLocaleString()} ر.س`, icon: <DollarSign size={20}/>, color: "green" },
+          { title: "صافي الربح", value: `${dashboardStats.totalProfit.toLocaleString()} ر.س`, icon: <TrendingUp size={20}/>, color: "purple" },
+          { title: "المرتجعات", value: dashboardStats.totalReturns, icon: <ArrowRightLeft size={20}/>, color: "red" }
+        ].map((card, i) => (
+          <div key={i} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition group relative overflow-hidden">
+            <div className={`absolute top-0 right-0 w-1 h-full ${
+              card.color === 'blue' ? 'bg-blue-500' : card.color === 'green' ? 'bg-green-500' : card.color === 'purple' ? 'bg-purple-500' : 'bg-red-500'
+            }`}></div>
+            <div className="flex justify-between items-start mb-2">
+               <p className="text-xs text-gray-500 font-bold">{card.title}</p>
+               <div className={`p-1.5 rounded-lg ${
+                  card.color === 'blue' ? 'bg-blue-50 text-blue-500' : card.color === 'green' ? 'bg-green-50 text-green-500' : card.color === 'purple' ? 'bg-purple-50 text-purple-500' : 'bg-red-50 text-red-500'
+               }`}>
+                  {card.icon}
+               </div>
+            </div>
+            <h2 className={`text-2xl font-black ${
+              card.color === 'blue' ? 'text-blue-700' : card.color === 'green' ? 'text-green-700' : card.color === 'purple' ? 'text-purple-700' : 'text-red-700'
+            }`}>
+              {card.value}
+            </h2>
+          </div>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -645,48 +661,54 @@ export default function App() {
           <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
             <BarChart3 size={18} className="text-blue-600" /> حركة إجمالي المبيعات (آخر 7 أيام)
           </h3>
-          <div className="flex items-end gap-2 md:gap-4 h-48 pt-6 mt-auto">
-            {trendData.map((d, index) => {
-              const heightPercent = maxSalesInTrend > 0 ? (d.sales / maxSalesInTrend) * 100 : 0;
-              return (
-                <div key={index} className="flex-1 flex flex-col items-center gap-2 group">
-                  <div className="w-full max-w-[40px] bg-blue-50 rounded-t-md relative flex items-end justify-center h-full border-b border-blue-100">
-                    <div 
-                      className="w-full bg-blue-500 rounded-t-md transition-all duration-700 ease-out group-hover:bg-blue-600 shadow-sm" 
-                      style={{ height: `${heightPercent}%`, minHeight: d.sales > 0 ? '4px' : '0' }}
-                    ></div>
-                    <span className="absolute -top-6 text-xs font-bold text-gray-700 opacity-80 group-hover:opacity-100 group-hover:-top-7 transition-all">
-                      {d.sales}
-                    </span>
-                  </div>
-                  <span className="text-[10px] md:text-xs text-gray-500 font-medium truncate w-full text-center" dir="ltr">
-                  {d.date.substring(5)}
-                </span>
-              </div>
-            );
-          })}
-          </div>
+          {trendData.length === 0 || trendData.every(d => d.sales === 0) ? (
+            <div className="flex items-center justify-center h-48 text-gray-400 text-sm font-bold bg-gray-50 rounded-lg border border-dashed border-gray-200">
+              لا توجد بيانات كافية لعرض الرسم البياني
+            </div>
+          ) : (
+            <div className="flex items-end gap-2 md:gap-4 h-48 pt-6 mt-auto">
+              {trendData.map((d, index) => {
+                const heightPercent = maxSalesInTrend > 0 ? (d.sales / maxSalesInTrend) * 100 : 0;
+                return (
+                  <div key={index} className="flex-1 flex flex-col items-center gap-2 group">
+                    <div className="w-full max-w-[40px] bg-blue-50 rounded-t-md relative flex items-end justify-center h-full border-b border-blue-100">
+                      <div 
+                        className="w-full bg-blue-500 rounded-t-md transition-all duration-700 ease-out group-hover:bg-blue-600 shadow-sm" 
+                        style={{ height: `${heightPercent}%`, minHeight: d.sales > 0 ? '4px' : '0' }}
+                      ></div>
+                      <span className="absolute -top-6 text-xs font-bold text-gray-700 opacity-80 group-hover:opacity-100 group-hover:-top-7 transition-all">
+                        {d.sales}
+                      </span>
+                    </div>
+                    <span className="text-[10px] md:text-xs text-gray-500 font-medium truncate w-full text-center" dir="ltr">
+                    {d.date.substring(5)}
+                  </span>
+                </div>
+              );
+            })}
+            </div>
+          )}
         </div>
 
         <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col max-h-[300px] overflow-hidden">
           <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 shrink-0">
-            <PackageOpen size={18} className="text-purple-600" /> مقارنة أداء القنوات (حسب المنتج)
+            <TrendingUp size={18} className="text-purple-600" /> تحليل العائد التسويقي (ROI) حسب القناة
           </h3>
           <div className="flex-1 flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar">
             {groupedPackagePerformance.length === 0 && <p className="text-sm text-gray-400 text-center mt-10">لا توجد بيانات للفترة المحددة</p>}
             {groupedPackagePerformance.map((group, gIdx) => {
-              const maxInGroup = Math.max(...group.pkgs.map(p => p.sales), 1);
+              const maxInGroupProfit = Math.max(...group.pkgs.map(p => p.profit), 1);
               
               return (
                 <div key={gIdx} className="space-y-3 bg-slate-50 p-3 rounded-xl border border-slate-100 shrink-0">
                   <h4 className="text-xs font-black text-slate-700 border-b border-slate-200 pb-2 flex justify-between">
                     <span>{group.groupName}</span>
-                    <span className="text-[10px] text-slate-500 font-bold bg-white px-2 py-0.5 rounded border">إجمالي: {group.totalSales}</span>
+                    <span className="text-[10px] text-green-700 font-bold bg-green-50 px-2 py-0.5 rounded border border-green-200">إجمالي الربح: {group.totalProfit.toLocaleString()} ر.س</span>
                   </h4>
                   <div className="space-y-3">
                     {group.pkgs.map(pkg => {
-                      const widthPercent = (pkg.sales / maxInGroup) * 100;
-                      const isWinner = pkg.sales === maxInGroup && pkg.sales > 0;
+                      const widthPercent = pkg.profit > 0 ? (pkg.profit / maxInGroupProfit) * 100 : 0;
+                      const isWinner = pkg.profit === maxInGroupProfit && pkg.profit > 0;
                       
                       return (
                         <div key={pkg.code} className="space-y-1.5">
@@ -695,13 +717,13 @@ export default function App() {
                               {isWinner && <span title="أفضل قناة" className="text-yellow-500 text-[14px]">🏆</span>}
                               {pkg.channel}
                             </span>
-                            <span className="text-gray-800 bg-white px-2 py-0.5 rounded shadow-sm border border-gray-200 text-[10px]">
-                              {pkg.sales} مبيعة
+                            <span className="text-green-700 bg-white px-2 py-0.5 rounded shadow-sm border border-green-200 text-[10px]">
+                              {pkg.profit.toLocaleString()} ر.س
                             </span>
                           </div>
-                          <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                          <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden flex">
                             <div 
-                              className={`h-1.5 rounded-full transition-all duration-700 ease-out ${isWinner ? 'bg-gradient-to-l from-yellow-500 to-yellow-400' : 'bg-gradient-to-l from-purple-500 to-purple-300'}`}
+                              className={`h-1.5 transition-all duration-700 ease-out ${isWinner ? 'bg-gradient-to-l from-yellow-500 to-yellow-400' : 'bg-gradient-to-l from-purple-500 to-purple-300'}`}
                               style={{ width: `${widthPercent}%` }}
                             ></div>
                           </div>
@@ -728,36 +750,31 @@ export default function App() {
               <thead className="bg-gray-100 text-gray-600 border-b border-gray-200">
                 <tr>
                   <th className="p-2 font-bold whitespace-nowrap">SKU</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center">التكلفة</th>
                   <th className="p-2 font-bold whitespace-nowrap text-center">المخزون الحالي</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center text-blue-700">مبيعات فعلية</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center text-red-700">رجوعات/رفض</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center">صافي المبيعات</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center text-blue-700">مبيعات صافية</th>
                   <th className="p-2 font-bold whitespace-nowrap text-center">الحالة</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center">تنبيه</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {products.length === 0 && <tr><td colSpan="7" className="p-4 text-center text-gray-400">لا توجد منتجات معرفة</td></tr>}
+                {products.length === 0 && <tr><td colSpan="5" className="p-4 text-center text-gray-400">لا توجد منتجات معرفة</td></tr>}
                 {products.map(sku => {
                   const qty = stockAsOfDate[sku] || 0;
                   const stats = getPeriodItemStats(sku, 'منتج');
+                  const cost = productCosts[sku] || 0;
                   const status = qty > 150 ? 'جيد' : (qty > 50 ? 'متوسط' : 'منخفض');
                   const statusColor = qty > 150 ? 'text-green-600 bg-green-50' : (qty > 50 ? 'text-orange-600 bg-orange-50' : 'text-red-600 bg-red-50');
                   
                   return (
                     <tr key={sku} className="hover:bg-gray-50">
                       <td className="p-2 font-bold text-gray-800 bg-gray-50 border-l border-gray-100">{sku}</td>
+                      <td className="p-2 text-center font-bold text-gray-500">{cost} ر.س</td>
                       <td className="p-2 text-center font-bold text-gray-700">{qty}</td>
-                      <td className="p-2 text-center font-bold text-blue-600">{stats.sales}</td>
-                      <td className="p-2 text-center font-bold text-red-600">{stats.returns}</td>
-                      <td className="p-2 text-center font-bold text-gray-800">{stats.net}</td>
+                      <td className="p-2 text-center font-bold text-blue-600">{stats.net}</td>
                       <td className="p-2 text-center">
                         <span className={`inline-block px-2 py-1 rounded-md text-[10px] font-bold ${statusColor}`}>
-                          {status}
+                          {status} {qty < 50 && <AlertTriangle size={12} className="inline ml-1" />}
                         </span>
-                      </td>
-                      <td className="p-2 text-center">
-                        {qty < 50 && <AlertTriangle size={14} className="text-red-500 inline" />}
                       </td>
                     </tr>
                   );
@@ -778,41 +795,35 @@ export default function App() {
               <thead className="bg-gray-100 text-gray-600 border-b border-gray-200">
                 <tr>
                   <th className="p-2 font-bold whitespace-nowrap">كود البكج</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center">القناة / المشهور</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center">سعر البيع</th>
                   <th className="p-2 font-bold whitespace-nowrap text-center">أقصى بيع ممكن</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center text-blue-700">مبيعات فعلية</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center text-red-700">رجوعات/رفض</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center">صافي المبيعات</th>
-                  <th className="p-2 font-bold whitespace-nowrap text-center">SKU الحرج</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center text-blue-700">مبيعات صافية</th>
+                  <th className="p-2 font-bold whitespace-nowrap text-center text-green-700">الربح (ROI)</th>
                   <th className="p-2 font-bold whitespace-nowrap text-center">القرار</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {Object.keys(packages).length === 0 && <tr><td colSpan="8" className="p-4 text-center text-gray-400">لا توجد بكجات معرفة</td></tr>}
+                {Object.keys(packages).length === 0 && <tr><td colSpan="6" className="p-4 text-center text-gray-400">لا توجد بكجات معرفة</td></tr>}
                 {Object.entries(packageAvailabilityAsOfDate).map(([code, data]) => {
                   const stats = getPeriodItemStats(code, 'بكج');
+                  const pkg = packages[code];
+                  let pkgCost = 0;
+                  Object.entries(pkg.items).forEach(([sku, reqQty]) => { pkgCost += (productCosts[sku] || 0) * reqQty; });
+                  const profit = stats.net * ((pkg.price || 0) - pkgCost);
+
                   const decision = data.max > 150 ? 'أطلق حملات' : (data.max > 50 ? 'احذر' : 'إيقاف/توريد');
                   const decisionColor = data.max > 150 ? 'text-green-600 bg-green-50' : (data.max > 50 ? 'text-orange-600 bg-orange-50' : 'text-red-600 bg-red-50');
-                  const channel = packages[code]?.channel || '-';
-                  const groupName = packages[code]?.group || '-';
 
                   return (
                     <tr key={code} className="hover:bg-gray-50">
                       <td className="p-2 font-bold text-gray-800 bg-gray-50 border-l border-gray-100">
                         {code}
-                        <div className="text-[10px] text-gray-400 font-normal truncate max-w-[100px]" title={packages[code]?.name}>{packages[code]?.name}</div>
+                        <div className="text-[10px] text-gray-400 font-normal truncate max-w-[100px]" title={pkg.name}>{pkg.name}</div>
                       </td>
-                      <td className="p-2 text-center text-[10px] space-y-1">
-                        <div className="font-bold text-gray-700 bg-gray-100 rounded px-1 truncate max-w-[100px]">{groupName}</div>
-                        <div className="font-bold text-purple-700 bg-purple-50/50 rounded px-1 truncate max-w-[100px]">{channel}</div>
-                      </td>
+                      <td className="p-2 text-center font-bold text-gray-500">{pkg.price || 0} ر.س</td>
                       <td className="p-2 text-center font-black text-indigo-700">{data.max}</td>
-                      <td className="p-2 text-center font-bold text-blue-600">{stats.sales}</td>
-                      <td className="p-2 text-center font-bold text-red-600">{stats.returns}</td>
-                      <td className="p-2 text-center font-bold text-gray-800">{stats.net}</td>
-                      <td className="p-2 text-center text-[10px] font-mono text-red-500 bg-red-50/50 rounded">
-                        {data.max === 0 ? 'نفد' : data.criticalSku}
-                      </td>
+                      <td className="p-2 text-center font-bold text-blue-600">{stats.net}</td>
+                      <td className="p-2 text-center font-bold text-green-600">{profit.toLocaleString()} ر.س</td>
                       <td className="p-2 text-center">
                         <span className={`inline-block px-2 py-1 rounded-md text-[10px] font-bold whitespace-nowrap ${decisionColor}`}>
                           {decision}
@@ -828,9 +839,6 @@ export default function App() {
       </div>
     </div>
   );
-  // ======= نهاية الدالة التي كانت مفقودة =======
-
-  // --- مكونات الواجهة الفرعية ---
 
   const UsersManagementTab = () => {
     const [newUserEmail, setNewUserEmail] = useState('');
@@ -859,7 +867,7 @@ export default function App() {
         alert('لا يمكنك إزالة صلاحياتك كمدير رئيسي!');
         return;
       }
-      if(window.confirm(`هل أنت متأكد من إزالة صلاحيات (${emailToRemove})؟ لن يتمكن من رؤية أي صفحات.`)) {
+      if(safeConfirm(`هل أنت متأكد من إزالة صلاحيات (${emailToRemove})؟ لن يتمكن من رؤية أي صفحات.`)) {
         const newPerms = { ...permissions };
         delete newPerms[emailToRemove];
         setIsSyncing(true);
@@ -954,13 +962,16 @@ export default function App() {
 
   const DefinitionsTab = () => {
     const [newSku, setNewSku] = useState('');
+    const [newCost, setNewCost] = useState('');
     const [editingSku, setEditingSku] = useState(null);
     const [editSkuValue, setEditSkuValue] = useState('');
+    const [editSkuCost, setEditSkuCost] = useState('');
     
     const [pkgCode, setPkgCode] = useState('');
     const [pkgName, setPkgName] = useState('');
     const [pkgGroup, setPkgGroup] = useState('');
     const [pkgChannel, setPkgChannel] = useState('');
+    const [pkgPrice, setPkgPrice] = useState('');
     const [pkgItems, setPkgItems] = useState({});
     
     const [itemSelectSku, setItemSelectSku] = useState(products[0] || '');
@@ -968,28 +979,35 @@ export default function App() {
 
     const handleAddProduct = () => {
       if (!newSku.trim() || products.includes(newSku.trim())) return;
-      updateSettingsInCloud([...products, newSku.trim()], packages);
-      setNewSku('');
+      const newCostVal = parseFloat(newCost) || 0;
+      updateSettingsInCloud([...products, newSku.trim()], packages, { ...productCosts, [newSku.trim()]: newCostVal });
+      setNewSku(''); setNewCost('');
     };
 
     const handleSaveEditProduct = (oldSku) => {
       const newVal = editSkuValue.trim();
-      if (!newVal || newVal === oldSku) {
-        setEditingSku(null);
-        return;
-      }
-      if (products.includes(newVal)) {
-        alert("هذا الرمز موجود مسبقاً!");
-        return;
-      }
+      const newCostVal = parseFloat(editSkuCost) || 0;
+      
+      if (!newVal) { setEditingSku(null); return; }
+      if (newVal !== oldSku && products.includes(newVal)) { alert("هذا الرمز موجود مسبقاً!"); return; }
+      
       const newProducts = products.map(p => p === oldSku ? newVal : p);
-      updateSettingsInCloud(newProducts, packages);
+      const newCosts = { ...productCosts };
+      if (newVal !== oldSku) {
+        newCosts[newVal] = newCostVal;
+        delete newCosts[oldSku];
+      } else {
+        newCosts[oldSku] = newCostVal;
+      }
+      
+      updateSettingsInCloud(newProducts, packages, newCosts);
       setEditingSku(null);
     };
 
     const handleDeleteProduct = (sku) => {
-      if(window.confirm(`هل أنت متأكد من حذف المنتج ${sku}؟`)) {
-        updateSettingsInCloud(products.filter(p => p !== sku), packages);
+      if(safeConfirm(`هل أنت متأكد من حذف المنتج ${sku}؟`)) {
+        const newCosts = { ...productCosts }; delete newCosts[sku];
+        updateSettingsInCloud(products.filter(p => p !== sku), packages, newCosts);
       }
     };
 
@@ -1020,13 +1038,14 @@ export default function App() {
           name: pkgName.trim(),
           group: pkgGroup.trim() || pkgName.trim(),
           channel: pkgChannel.trim() || 'عام',
+          price: parseFloat(pkgPrice) || 0,
           items: pkgItems
         }
       };
       
-      updateSettingsInCloud(products, newPackages);
+      updateSettingsInCloud(products, newPackages, productCosts);
       
-      setPkgCode(''); setPkgName(''); setPkgGroup(''); setPkgChannel(''); setPkgItems({});
+      setPkgCode(''); setPkgName(''); setPkgGroup(''); setPkgChannel(''); setPkgPrice(''); setPkgItems({});
     };
 
     const handleEditPackageLoad = (code, pkg) => {
@@ -1034,15 +1053,16 @@ export default function App() {
       setPkgName(pkg.name);
       setPkgGroup(pkg.group);
       setPkgChannel(pkg.channel);
+      setPkgPrice(pkg.price || '');
       setPkgItems({ ...pkg.items });
       document.getElementById('package-form')?.scrollIntoView({ behavior: 'smooth' });
     };
 
     const handleDeletePackage = (code) => {
-      if(window.confirm(`هل أنت متأكد من حذف البكج ${code}؟`)) {
+      if(safeConfirm(`هل أنت متأكد من حذف البكج ${code}؟`)) {
         const newPackages = { ...packages };
         delete newPackages[code];
-        updateSettingsInCloud(products, newPackages);
+        updateSettingsInCloud(products, newPackages, productCosts);
       }
     };
 
@@ -1057,7 +1077,7 @@ export default function App() {
             </div>
            )}
            <h3 className="text-lg font-semibold text-gray-800 mb-2 flex items-center gap-2 border-b pb-4">
-             <Package size={20} className="text-blue-600"/> إدارة المنتجات الفردية (SKUs)
+             <Package size={20} className="text-blue-600"/> إدارة المنتجات الفردية وتكلفتها
            </h3>
            
            <div className="flex flex-wrap gap-3 my-6">
@@ -1066,22 +1086,17 @@ export default function App() {
                <div key={sku} className="flex items-center gap-2 bg-blue-50 text-blue-800 px-3 py-1.5 rounded-lg border border-blue-100 font-bold text-sm">
                  {editingSku === sku ? (
                    <div className="flex items-center gap-1">
-                     <input 
-                       type="text" 
-                       value={editSkuValue} 
-                       onChange={e => setEditSkuValue(e.target.value)} 
-                       className="p-1 text-xs border rounded w-24 outline-none text-left" 
-                       dir="ltr"
-                       autoFocus
-                     />
+                     <input type="text" value={editSkuValue} onChange={e => setEditSkuValue(e.target.value)} className="p-1 text-xs border rounded w-24 outline-none text-left" dir="ltr" autoFocus placeholder="SKU" />
+                     <input type="number" value={editSkuCost} onChange={e => setEditSkuCost(e.target.value)} className="p-1 text-xs border rounded w-16 outline-none" placeholder="التكلفة" />
                      <button onClick={() => handleSaveEditProduct(sku)} className="text-green-600 hover:bg-green-100 rounded p-1 transition-colors"><Check size={14} /></button>
                      <button onClick={() => setEditingSku(null)} className="text-gray-400 hover:bg-gray-200 rounded p-1 transition-colors"><X size={14} /></button>
                    </div>
                  ) : (
                    <>
                      <span dir="ltr">{sku}</span>
+                     <span className="bg-white text-green-700 px-2 py-0.5 rounded text-[10px] border border-green-200">{productCosts[sku] || 0} ر.س</span>
                      <div className="flex gap-1 mr-1 border-r border-blue-200 pr-2">
-                       <button onClick={() => { setEditingSku(sku); setEditSkuValue(sku); }} className="text-blue-400 hover:text-blue-600 transition-colors" title="تعديل الاسم">
+                       <button onClick={() => { setEditingSku(sku); setEditSkuValue(sku); setEditSkuCost(productCosts[sku] || ''); }} className="text-blue-400 hover:text-blue-600 transition-colors" title="تعديل الاسم والتكلفة">
                          <Edit2 size={14} />
                        </button>
                        <button onClick={() => handleDeleteProduct(sku)} className="text-blue-400 hover:text-red-500 transition-colors" title="حذف المنتج">
@@ -1094,17 +1109,10 @@ export default function App() {
              ))}
            </div>
 
-           <div className="flex gap-2 max-w-sm">
-             <input 
-               type="text" 
-               placeholder="رمز المنتج الجديد (SKU)..." 
-               className="flex-1 p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-               value={newSku}
-               onChange={e => setNewSku(e.target.value)}
-             />
-             <button onClick={handleAddProduct} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-bold text-sm transition-colors">
-               إضافة
-             </button>
+           <div className="flex gap-2 max-w-md bg-gray-50 p-3 rounded-lg border border-gray-200">
+             <input type="text" placeholder="رمز المنتج (SKU)..." className="flex-1 p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newSku} onChange={e => setNewSku(e.target.value)} />
+             <input type="number" placeholder="التكلفة (SAR)" className="w-28 p-2 border rounded outline-none focus:ring-2 focus:ring-blue-500 text-sm" value={newCost} onChange={e => setNewCost(e.target.value)} />
+             <button onClick={handleAddProduct} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-bold text-sm transition-colors">إضافة</button>
            </div>
         </div>
 
@@ -1132,7 +1140,10 @@ export default function App() {
                  </div>
 
                  <div className="font-bold text-gray-800 mb-1 pr-6 truncate" title={pkg.name}>{pkg.name}</div>
-                 <div className="text-xs text-indigo-600 font-mono mb-3 bg-indigo-50 inline-block px-2 py-0.5 rounded w-fit">{code}</div>
+                 <div className="flex items-center gap-2 mb-3">
+                    <div className="text-xs text-indigo-600 font-mono bg-indigo-50 px-2 py-0.5 rounded w-fit">{code}</div>
+                    <div className="text-[10px] text-green-700 font-bold bg-green-50 px-2 py-0.5 rounded border border-green-200">{pkg.price || 0} ر.س</div>
+                 </div>
                  
                  <div className="space-y-1 mb-4 flex-1">
                    <div className="flex items-center gap-2 text-[10px] text-gray-500">
@@ -1161,7 +1172,7 @@ export default function App() {
              <h4 className={`font-bold text-sm mb-4 ${isEditingPkg ? 'text-blue-800' : 'text-gray-800'}`}>
                {isEditingPkg ? '✏️ تحديث بيانات البكج الحالي' : '✨ إنشاء بكج / كود تسويقي جديد'}
              </h4>
-             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                <div>
                  <label className="block text-xs font-bold text-gray-600 mb-1">كود البكج (مثال: asg005)</label>
                  <input type="text" className={`w-full p-2 border rounded outline-none text-sm font-mono ${isEditingPkg ? 'bg-gray-100 cursor-not-allowed' : 'focus:ring-2 focus:ring-purple-500'}`}
@@ -1173,17 +1184,22 @@ export default function App() {
                    value={pkgName} onChange={e => setPkgName(e.target.value)} />
                </div>
                <div>
+                 <label className="block text-xs font-bold text-gray-600 mb-1">سعر البيع (للأرباح)</label>
+                 <input type="number" placeholder="150" className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                   value={pkgPrice} onChange={e => setPkgPrice(e.target.value)} />
+               </div>
+               <div>
                  <label className="block text-xs font-bold text-gray-600 mb-1">المجموعة (للمقارنة)</label>
                  <input type="text" placeholder="مثال: مجموعة سبارك" className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-purple-500 text-sm"
                    value={pkgGroup} onChange={e => setPkgGroup(e.target.value)} />
                </div>
                <div>
                  <label className="block text-xs font-bold text-gray-600 mb-1">القناة / المشهور</label>
-                 <input type="text" placeholder="مثال: إعلانات تيك توك" className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                 <input type="text" placeholder="مثال: تيك توك" className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-purple-500 text-sm"
                    value={pkgChannel} onChange={e => setPkgChannel(e.target.value)} />
                </div>
 
-               <div className="md:col-span-4 bg-white p-4 rounded-lg border border-gray-200 mt-2">
+               <div className="md:col-span-5 bg-white p-4 rounded-lg border border-gray-200 mt-2">
                  <label className="block text-xs font-bold text-gray-600 mb-3">📦 إضافة المنتجات داخل هذا البكج:</label>
                  <div className="flex flex-wrap items-center gap-3 mb-4">
                    <select className="p-2 border rounded outline-none focus:ring-2 focus:ring-purple-500 text-sm flex-1 min-w-[150px]"
@@ -1215,13 +1231,13 @@ export default function App() {
                  )}
                </div>
 
-               <div className="md:col-span-4 mt-2 flex gap-2">
+               <div className="md:col-span-5 mt-2 flex gap-2">
                  <button onClick={handleAddPackage} className={`flex-1 text-white p-3 rounded-lg font-bold flex justify-center items-center gap-2 transition-colors shadow-sm ${isEditingPkg ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}>
                    {isEditingPkg ? <Edit2 size={18} /> : <Plus size={18} />}
                    {isEditingPkg ? 'حفظ التعديلات' : 'اعتماد البكج الجديد'}
                  </button>
                  {isEditingPkg && (
-                   <button onClick={() => {setPkgCode(''); setPkgName(''); setPkgGroup(''); setPkgChannel(''); setPkgItems({});}} className="bg-gray-200 hover:bg-gray-300 text-gray-700 p-3 rounded-lg font-bold transition-colors">
+                   <button onClick={() => {setPkgCode(''); setPkgName(''); setPkgGroup(''); setPkgChannel(''); setPkgPrice(''); setPkgItems({});}} className="bg-gray-200 hover:bg-gray-300 text-gray-700 p-3 rounded-lg font-bold transition-colors">
                      إلغاء التعديل
                    </button>
                  )}
@@ -1274,7 +1290,7 @@ export default function App() {
       setFormData({ ...formData, quantity: 1, reference: '', note: '', date: todayStr });
     };
 
-    // ميزة قراءة ملفات الإكسل (XLSX) والـ CSV الذكية مع التعرف على الكمية وطريقة الدفع
+    // ميزة قراءة ملفات الإكسل (XLSX) والـ CSV الذكية 
     const handleFileUpload = async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -1289,7 +1305,6 @@ export default function App() {
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
           
-          // تحويل الشيت إلى مصفوفة (Array of arrays)
           const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
           if(rows.length < 2) {
@@ -1299,11 +1314,10 @@ export default function App() {
 
           const headers = rows[0].map(h => String(h || ''));
           
-          // البحث عن أعمدة سلة الذكية
           const orderIdCol = headers.findIndex(h => h.includes('رقم الطلب') || h.includes('رقم'));
           const productCol = headers.findIndex(h => h.includes('نوع الطلب') || h.includes('المنتجات') || h.includes('اسم المنتج') || h.includes('اسماء'));
           const qtyCol = headers.findIndex(h => h.includes('الكمية') || h.includes('العدد') || h === 'Qty');
-          const paymentCol = headers.findIndex(h => h.includes('طريقة الدفع') || h.includes('الدفع')); // لتمييز نوع الدفع للمبيعات
+          const paymentCol = headers.findIndex(h => h.includes('طريقة الدفع') || h.includes('الدفع')); 
 
           const parsedMovements = [];
           
@@ -1318,20 +1332,16 @@ export default function App() {
             let paymentStr = paymentCol !== -1 ? String(row[paymentCol] || '') : '';
             
             let qty = 1;
-            // محاولة أخذ الكمية من عمود مستقل أولاً
             if (qtyCol !== -1 && row[qtyCol] !== undefined && !isNaN(parseInt(row[qtyCol]))) {
                 qty = parseInt(row[qtyCol]);
             } else {
-                // ذكاء اصطناعي: محاولة استخراج الكمية المكتوبة داخل اسم المنتج في سلة مثل (Qty: 2)
                 const qtyMatch = productStr.match(/Qty:\s*(\d+)/i);
                 if (qtyMatch) qty = parseInt(qtyMatch[1]);
             }
 
-            // خوارزمية ذكية لاكتشاف نوع البكج من النص (تعتمد على الصورة المطلوبة)
             let mappedCode = null;
             let mappedLevel = 'بكج';
 
-            // 1- محاولة التقاط الـ SKU مباشرة إذا كان سلة كاتبه (SKU: asg002)
             const skuMatch = productStr.match(/SKU:\s*([a-zA-Z0-9_-]+)/i);
             if (skuMatch && packages[skuMatch[1]]) {
                mappedCode = skuMatch[1];
@@ -1345,7 +1355,6 @@ export default function App() {
             } else if (productStr.includes('بكج الـ 7 عطور')) {
               mappedCode = 'asg002';
             } else {
-              // 2- البحث التلقائي في البكجات المعرفة سلفاً
               Object.entries(packages).forEach(([code, pkg]) => {
                 if(productStr.includes(code) || productStr.includes(pkg.name)) {
                   mappedCode = code;
@@ -1353,7 +1362,6 @@ export default function App() {
               });
             }
 
-            // 3- إذا لم يجد بكج، يبحث في المنتجات الفردية
             if (!mappedCode) {
               products.forEach(sku => {
                 if(productStr.includes(sku)) {
@@ -1363,13 +1371,11 @@ export default function App() {
               });
             }
 
-            // افتراضي إذا لم يتعرف عليه أبداً
             if (!mappedCode) {
               mappedCode = Object.keys(packages)[0] || products[0];
             }
 
-            // ذكاء اصطناعي: تحديد نوع الحركة بدقة من طريقة الدفع
-            let movType = 'بيع آلي (عبر الربط)'; // الافتراضي
+            let movType = 'بيع آلي (عبر الربط)'; 
             
             if (importMode === 'sales') {
                if (paymentStr.includes('تمارا') || paymentStr.includes('تابي')) {
@@ -1380,7 +1386,7 @@ export default function App() {
                    movType = 'بيع (دفع إلكتروني)';
                }
             } else {
-               movType = 'مرتجع (إلغاء رغبة العميل)'; // للرجيع
+               movType = 'مرتجع (إلغاء رغبة العميل)'; 
             }
             
             parsedMovements.push({
@@ -1397,7 +1403,7 @@ export default function App() {
           setImportPreview(parsedMovements);
           if (fileInputRef.current) fileInputRef.current.value = '';
         };
-        reader.readAsArrayBuffer(file); // تم تغييرها لتقرأ الملفات كبيانات خام لتناسب الإكسل
+        reader.readAsArrayBuffer(file);
       } catch (err) {
         console.error(err);
         alert('حدث خطأ أثناء تحميل مكتبة قراءة الإكسل، تأكد من اتصالك بالإنترنت.');
@@ -1414,10 +1420,11 @@ export default function App() {
           const chunk = importPreview.slice(i, i + batchSize);
           const batch = writeBatch(db);
           
-          chunk.forEach(mov => {
-            const movementId = `mov_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+          chunk.forEach((mov, index) => {
+            const now = Date.now() + index; // محصن ضد التكرار السريع
+            const movementId = `mov_${now}_${Math.random().toString(36).slice(2, 7)}`;
             const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'movements', movementId);
-            batch.set(docRef, { ...mov, timestamp: Date.now() });
+            batch.set(docRef, { ...mov, timestamp: now });
           });
           
           await batch.commit();

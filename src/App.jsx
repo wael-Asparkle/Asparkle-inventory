@@ -4,13 +4,15 @@ import {
   PackageOpen, Cloud, CloudOff, Loader2, Settings, Link2, CalendarDays, Download, 
   BarChart3, Trash2, Tags, X, Edit2, Check, Users, UploadCloud, FileSpreadsheet, 
   CheckCircle2, DollarSign, TrendingUp, BellRing, AlertOctagon, Activity, Megaphone, 
-  Target, Zap, ShieldAlert, UsersRound, ShoppingBag, BrainCircuit, Calculator, Shield
+  Target, Zap, ShieldAlert, UsersRound, ShoppingBag, BrainCircuit, Calculator, Shield,
+  Search, PieChart
 } from 'lucide-react';
 
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
 
+// مكتبة الإكسل
 const loadXLSX = async () => {
   if (window.XLSX) return window.XLSX;
   return new Promise((resolve, reject) => {
@@ -51,7 +53,7 @@ const safeConfirm = (msg) => {
 };
 
 // SVG Line Chart Component
-const SimpleLineChart = ({ data, dataKey, height = 150 }) => {
+const SimpleLineChart = ({ data, dataKey, height = 200 }) => {
   if (!data || data.length === 0) return null;
   const maxVal = Math.max(...data.map(d => d[dataKey] || 0), 1);
   const minVal = 0;
@@ -73,11 +75,11 @@ const SimpleLineChart = ({ data, dataKey, height = 150 }) => {
             const y = 100 - (((d[dataKey] || 0) - minVal) / (maxVal - minVal)) * 100;
             return `${x},${y}`;
           }).join(' L ')}`}
-          fill="none" stroke="#4f46e5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          fill="none" stroke="#4f46e5" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
         />
         <defs>
           <linearGradient id="gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="#4f46e5" stopOpacity="0.8" />
+            <stop offset="0%" stopColor="#4f46e5" stopOpacity="0.6" />
             <stop offset="100%" stopColor="#4f46e5" stopOpacity="0" />
           </linearGradient>
         </defs>
@@ -90,9 +92,12 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   
   const [todayStr, setTodayStr] = useState(() => new Date().toISOString().split('T')[0]);
-  const [periodType, setPeriodType] = useState('day');
+  const [periodType, setPeriodType] = useState('month');
   const [endDate, setEndDate] = useState(todayStr);
-  const [startDate, setStartDate] = useState(todayStr);
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date(); d.setMonth(d.getMonth() - 1);
+    return d.toISOString().split('T')[0];
+  });
 
   useEffect(() => {
     if (periodType === 'day') setStartDate(endDate);
@@ -114,23 +119,44 @@ export default function App() {
   const [orders, setOrders] = useState([]);
   const [productDetails, setProductDetails] = useState({}); 
   const [packages, setPackages] = useState({});
-  const [products, setProducts] = useState([]); 
+  const [channelsList, setChannelsList] = useState(['المتجر (عضوي)', 'تيك توك', 'سناب شات', 'واتساب']); 
   
   const [permissions, setPermissions] = useState({});
   const [currentUserRole, setCurrentUserRole] = useState('viewer'); // super_admin, admin, editor, viewer
 
+  // Loading States
   const [isLoading, setIsLoading] = useState(true);
+  const [isSettingsLoaded, setIsSettingsLoaded] = useState(false);
+  const [isPermissionsLoaded, setIsPermissionsLoaded] = useState(false);
+  
   const [isSyncing, setIsSyncing] = useState(false);
   const [authError, setAuthError] = useState(null);
 
   // Authentication State
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loginError, setLoginError] = useState(''); // تم استرجاع المتغير الذي تسبب بالخطأ
+  const [loginError, setLoginError] = useState(''); 
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
+  const navItems = [
+    { id: 'dashboard', label: 'لوحة التحكم', icon: <LayoutDashboard size={18}/>, roles: ['super_admin', 'admin', 'editor', 'viewer'] },
+    { id: 'movements', label: 'المبيعات والحركات', icon: <ArrowRightLeft size={18}/>, roles: ['super_admin', 'admin', 'editor'] },
+    { id: 'orders', label: 'الطلبات', icon: <ShoppingBag size={18}/>, roles: ['super_admin', 'admin', 'editor'] },
+    { id: 'crm', label: 'العملاء (CRM)', icon: <UsersRound size={18}/>, roles: ['super_admin', 'admin'] },
+    { id: 'adcosts', label: 'التسويق', icon: <Megaphone size={18}/>, roles: ['super_admin', 'admin'] },
+    { id: 'decision_center', label: 'مركز القرارات', icon: <BrainCircuit size={18}/>, roles: ['super_admin'] },
+    { id: 'profit_simulator', label: 'محاكي الأرباح', icon: <Calculator size={18}/>, roles: ['super_admin'] },
+    { id: 'definitions', label: 'الإعدادات', icon: <Tags size={18}/>, roles: ['super_admin', 'admin'] },
+    { id: 'users', label: 'المستخدمين', icon: <Users size={18}/>, roles: ['super_admin'] },
+    { id: 'data_admin', label: 'إدارة البيانات', icon: <ShieldAlert size={18}/>, roles: ['super_admin'] }
+  ];
+
   useEffect(() => {
-    const fallbackTimer = setTimeout(() => setIsLoading(false), 4000);
+    const fallbackTimer = setTimeout(() => { 
+      setIsLoading(false); 
+      setIsSettingsLoaded(true); 
+      setIsPermissionsLoaded(true); 
+    }, 4000);
     return () => clearTimeout(fallbackTimer);
   }, []);
 
@@ -155,7 +181,8 @@ export default function App() {
         setDoc(permsRef, initialData).catch(console.error);
         setCurrentUserRole('super_admin');
       }
-    });
+      setIsPermissionsLoaded(true);
+    }, () => setIsPermissionsLoaded(true));
   }, [user]);
 
   // Fetch All Core Data
@@ -179,21 +206,22 @@ export default function App() {
         const data = docSnap.data();
         setProductDetails(data.productDetails || {});
         setPackages(data.packages || {});
-        setProducts(data.products || []);
+        if(data.channelsList) setChannelsList(data.channelsList);
       }
-    });
+      setIsSettingsLoaded(true);
+    }, () => setIsSettingsLoaded(true));
 
     return () => { unsubMov(); unsubAd(); unsubOrd(); unsubSet(); };
   }, [user]);
 
-  const updateSettingsInCloud = async (newProductDetails, newPackages) => {
+  const updateSettingsInCloud = async (newProductDetails, newPackages, newChannels) => {
     if (!user) return;
     setIsSyncing(true);
     try {
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'definitions'), { 
         productDetails: newProductDetails || productDetails, 
-        products: Object.keys(newProductDetails || productDetails),
-        packages: newPackages || packages
+        packages: newPackages || packages,
+        channelsList: newChannels || channelsList
       }, { merge: true });
     } catch (error) { alert('خطأ في الحفظ'); } finally { setIsSyncing(false); }
   };
@@ -241,6 +269,29 @@ export default function App() {
     });
     return stock;
   }, [parsedMovements, productDetails, packages, endDate]);
+
+  const packageAvailabilityAsOfDate = useMemo(() => {
+    let availability = {};
+    Object.entries(packages).forEach(([pkgCode, pkg]) => {
+      let maxPossible = Infinity;
+      let limitingSku = null;
+
+      Object.entries(pkg.items).forEach(([sku, reqQty]) => {
+        const availableSkus = stockAsOfDate[sku] || 0;
+        const possibleFromThisSku = Math.floor(availableSkus / reqQty);
+        
+        if (possibleFromThisSku < maxPossible) {
+          maxPossible = possibleFromThisSku;
+          limitingSku = sku;
+        }
+      });
+      availability[pkgCode] = {
+        max: maxPossible === Infinity ? 0 : Math.max(0, maxPossible),
+        criticalSku: limitingSku
+      };
+    });
+    return availability;
+  }, [stockAsOfDate, packages]);
 
   const channelStats = useMemo(() => {
     const result = {};
@@ -333,12 +384,20 @@ export default function App() {
     const decisions = [];
     Object.entries(channelStats).forEach(([ch, data]) => {
       if (ch === 'المنتجات الفردية' || ch === 'غير محدد') return;
-      if (data.returnRate > 0.15) decisions.push({ type: 'warning', msg: `معدل استرجاع خطر ( ${(data.returnRate*100).toFixed(1)}% ) في قناة (${ch}) ⚠️` });
-      if (data.adCost > 0 && data.roi < 1.5) decisions.push({ type: 'stop', msg: `أوقف استنزاف الأموال في (${ch}) ❌ - العائد ضعيف.` });
-      if (data.adCost > 0 && data.roi >= 3) decisions.push({ type: 'scale', msg: `ضاعف الميزانية في (${ch}) 🔥 - قناة تدر ذهباً!` });
+      if (data.returnRate > 0.15) decisions.push({ type: 'warning', iconType: 'warning', color: 'text-orange-700 bg-orange-100 border-orange-200', msg: `معدل استرجاع خطر ( ${(data.returnRate*100).toFixed(1)}% ) في قناة (${ch}) ⚠️` });
+      if (data.adCost > 0 && data.roi < 1.5 && data.netSales > 0) decisions.push({ type: 'stop', iconType: 'stop', color: 'text-red-700 bg-red-100 border-red-200', msg: `أوقف استنزاف الأموال في (${ch}) ❌ - العائد ضعيف.` });
+      if (data.adCost > 0 && data.roi >= 3) decisions.push({ type: 'scale', iconType: 'scale', color: 'text-green-700 bg-green-100 border-green-200', msg: `ضاعف الميزانية في (${ch}) 🔥 - قناة تدر ذهباً!` });
     });
+    const topProduct = productStats.find(p => p.sales > 0);
+    const worstProduct = [...productStats].reverse().find(p => p.profit < 0);
+    if (topProduct && topProduct.profit > 0) {
+       decisions.push({ type: 'product-good', iconType: 'product-good', color: 'text-blue-700 bg-blue-100 border-blue-200', msg: `منتج (${topProduct.name}) هو البطل الرابح! 🌟 يدر أعلى أرباح مبيعات فردية.` });
+    }
+    if (worstProduct) {
+       decisions.push({ type: 'product-bad', iconType: 'product-bad', color: 'text-rose-700 bg-rose-100 border-rose-200', msg: `منتج (${worstProduct.name}) يسبب خسائر 📉 راجع التسعير أو المرتجعات.` });
+    }
     return decisions;
-  }, [channelStats]);
+  }, [channelStats, productStats]);
 
   const dashboardStats = useMemo(() => {
     let totalRevenue = 0, totalCogs = 0, netSales = 0;
@@ -359,7 +418,7 @@ export default function App() {
   const DashboardTab = () => {
     const trendDates = useMemo(() => {
       const dates = new Set(parsedMovements.map(m => m.date)); dates.add(todayStr); 
-      return Array.from(dates).sort().slice(-14); // Last 14 active days
+      return Array.from(dates).sort().slice(-14); 
     }, [parsedMovements, todayStr]);
 
     const trendLine = trendDates.map(d => {
@@ -367,69 +426,97 @@ export default function App() {
       return { date: d, sales };
     });
 
+    const smartAlerts = useMemo(() => {
+      const alerts = [];
+      Object.values(productDetails).forEach(p => {
+        const qty = stockAsOfDate[p.sku] || 0;
+        if (qty < 30 && qty > 0) alerts.push({ type: 'danger', msg: `مخزون منخفض: ${p.name} (${qty} حبة)` });
+        else if (qty === 0) alerts.push({ type: 'critical', msg: `نفاد مخزون: ${p.name} ❌` });
+      });
+      Object.entries(packageAvailabilityAsOfDate).forEach(([code, data]) => {
+        if (data.max < 20 && data.max > 0) alerts.push({ type: 'warning', msg: `خطر توقف بكج: ${packages[code]?.name} (يكفي لـ ${data.max} طلب)` });
+      });
+      return alerts;
+    }, [stockAsOfDate, packageAvailabilityAsOfDate, productDetails, packages]);
+
     return (
-      <div className="space-y-6 animate-in fade-in">
+      <div className="space-y-8 animate-in fade-in">
         {/* Filters */}
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-wrap justify-between items-center gap-4">
-          <div className="flex items-center gap-4 w-full md:w-auto">
-            <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl hidden md:block"><CalendarDays size={20} /></div>
-            <div className="flex gap-2">
-              <select className="bg-slate-50 border-none outline-none text-sm font-bold text-slate-700 py-2 px-3 rounded-lg focus:ring-2 ring-indigo-100" value={periodType} onChange={e=>setPeriodType(e.target.value)}>
+        <div className="flex flex-wrap justify-between items-center gap-4 bg-white/50 backdrop-blur-sm p-4 rounded-2xl border border-slate-200/60 shadow-sm">
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <CalendarDays size={20} className="text-slate-400 hidden md:block" />
+            <div className="flex gap-2 w-full md:w-auto">
+              <select className="bg-white border border-slate-200 text-sm font-bold text-slate-700 py-2.5 px-4 rounded-xl focus:ring-2 ring-indigo-500/20 outline-none w-full md:w-auto" value={periodType} onChange={e=>setPeriodType(e.target.value)}>
                 <option value="day">اليوم</option><option value="week">هذا الأسبوع</option><option value="month">هذا الشهر</option><option value="custom">مخصص</option>
               </select>
               {periodType === 'custom' && (
-                <div className="flex gap-2">
-                  <input type="date" className="bg-slate-50 border-none text-sm font-bold text-slate-700 py-2 px-3 rounded-lg outline-none" value={startDate} onChange={e=>setStartDate(e.target.value)} />
-                  <input type="date" className="bg-slate-50 border-none text-sm font-bold text-slate-700 py-2 px-3 rounded-lg outline-none" value={endDate} onChange={e=>setEndDate(e.target.value)} />
+                <div className="flex gap-2 w-full md:w-auto">
+                  <input type="date" className="bg-white border border-slate-200 text-sm font-bold text-slate-700 py-2.5 px-3 rounded-xl outline-none w-full md:w-auto" value={startDate} onChange={e=>setStartDate(e.target.value)} />
+                  <input type="date" className="bg-white border border-slate-200 text-sm font-bold text-slate-700 py-2.5 px-3 rounded-xl outline-none w-full md:w-auto" value={endDate} onChange={e=>setEndDate(e.target.value)} />
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* Hero KPI Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* SECTION 1: HERO SUMMARY */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="bg-gradient-to-br from-indigo-900 to-slate-900 p-8 rounded-[2rem] shadow-xl text-white relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500 rounded-full blur-[60px] opacity-30 -mr-10 -mt-10 transition-transform group-hover:scale-150"></div>
+            <p className="text-indigo-200 text-sm font-bold uppercase tracking-widest mb-2 flex items-center gap-2"><DollarSign size={16}/> صافي الربح</p>
+            <h2 className="text-4xl font-black tracking-tight">{dashboardStats.netProfit.toLocaleString()} ﷼</h2>
+          </div>
           {[
-            { label: "صافي الربح", value: dashboardStats.netProfit, c: "indigo" },
-            { label: "الإيرادات", value: dashboardStats.totalRevenue, c: "emerald" },
-            { label: "تكلفة التسويق", value: dashboardStats.totalAdCost, c: "rose" },
-            { label: "صافي المبيعات (طلبات)", value: dashboardStats.netSales, c: "blue", isNum: true }
+            { label: "الإيرادات", value: `${dashboardStats.totalRevenue.toLocaleString()} ﷼`, icon: <TrendingUp/>, color: "text-emerald-600", bg: "bg-emerald-50" },
+            { label: "تكلفة الإعلانات", value: `${dashboardStats.totalAdCost.toLocaleString()} ﷼`, icon: <Megaphone/>, color: "text-rose-600", bg: "bg-rose-50" },
+            { label: "صافي المبيعات", value: `${dashboardStats.netSales} طلب`, icon: <ShoppingBag/>, color: "text-blue-600", bg: "bg-blue-50" }
           ].map((k, i) => (
-            <div key={i} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-center items-center text-center relative overflow-hidden group hover:shadow-md transition-all">
-              <div className={`absolute top-0 w-full h-1 bg-${k.c}-500`}></div>
-              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">{k.label}</span>
-              <span className={`text-3xl font-black text-slate-800`}>{k.isNum ? k.value : `${k.value.toLocaleString()} ﷼`}</span>
+            <div key={i} className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col justify-center relative overflow-hidden hover:shadow-md transition-shadow">
+              <div className={`absolute top-6 left-6 p-3 rounded-2xl ${k.bg} ${k.color}`}>{k.icon}</div>
+              <p className="text-slate-400 text-sm font-bold uppercase tracking-wider mb-2">{k.label}</p>
+              <h2 className="text-3xl font-black text-slate-800">{k.value}</h2>
             </div>
           ))}
         </div>
 
-        {/* Charts & Channels */}
+        {/* SECTION 2: OPERATIONAL ALERTS */}
+        {smartAlerts.length > 0 && (
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
+            <h3 className="font-black text-slate-800 mb-4 flex items-center gap-2"><BellRing className="text-amber-500"/> التنبيهات التشغيلية</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {smartAlerts.map((a, i) => (
+                <div key={i} className={`p-4 rounded-2xl border flex items-start gap-3 ${a.type==='critical'?'bg-rose-50 border-rose-200 text-rose-800':a.type==='danger'?'bg-orange-50 border-orange-200 text-orange-800':'bg-amber-50 border-amber-200 text-amber-800'}`}>
+                  <AlertTriangle size={18} className="mt-0.5 flex-shrink-0" />
+                  <span className="text-sm font-bold leading-relaxed">{a.msg}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* SECTION 3: CHARTS & PRODUCTS */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-             <div className="flex justify-between items-center mb-6">
-               <h3 className="font-bold text-slate-800 flex items-center gap-2"><TrendingUp size={18} className="text-indigo-500"/> مسار الإيرادات (14 يوم)</h3>
-             </div>
+          <div className="lg:col-span-2 bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+             <h3 className="font-black text-slate-800 mb-8 flex items-center gap-2"><Activity className="text-indigo-500"/> مسار المبيعات</h3>
              {trendLine.every(d=>d.sales===0) ? (
-               <div className="h-[200px] flex items-center justify-center text-slate-400 font-bold bg-slate-50 rounded-xl border border-dashed">لا توجد بيانات</div>
-             ) : (
-               <SimpleLineChart data={trendLine} dataKey="sales" height={200} />
-             )}
+               <div className="h-[200px] flex items-center justify-center text-slate-400 font-bold bg-slate-50 rounded-2xl border border-dashed">لا توجد بيانات لعرضها</div>
+             ) : <SimpleLineChart data={trendLine} dataKey="sales" height={250} />}
           </div>
 
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col max-h-[300px] overflow-hidden">
-             <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2 shrink-0"><Target size={18} className="text-rose-500"/> أداء القنوات (ROI Ranking)</h3>
-             <div className="flex-1 overflow-y-auto pr-2 space-y-3">
-               {Object.entries(channelStats).filter(([ch])=>ch!=='المنتجات الفردية').sort((a,b)=>b[1].score - a[1].score).map(([ch, data], i) => (
-                 <div key={i} className="bg-slate-50 rounded-xl p-3 border border-slate-100">
-                   <div className="flex justify-between items-center mb-2">
-                     <span className="font-bold text-xs text-slate-800">{i===0&&'🥇'} {ch}</span>
-                     <span className={`text-[10px] font-black px-2 py-0.5 rounded ${data.roi >= 2 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                       ROI: {data.roi===Infinity ? 'عضوي' : data.roi.toFixed(1)+'x'}
-                     </span>
+          <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 flex flex-col">
+             <h3 className="font-black text-slate-800 mb-6 flex items-center gap-2"><Package className="text-emerald-500"/> تحليل المنتجات</h3>
+             <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar pr-2">
+               {productStats.slice(0, 5).map((p, i) => (
+                 <div key={i} className="flex flex-col gap-1.5">
+                   <div className="flex justify-between text-sm font-bold text-slate-700">
+                     <span className="truncate pr-2">{p.name}</span>
+                     <span>{p.sales} حبة</span>
                    </div>
-                   <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-                     <div className={`h-full ${data.netProfit > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`} style={{width: `${Math.min((data.revenue / (data.revenue+data.adCost||1))*100, 100)}%`}}></div>
+                   <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                     <div className={`h-full rounded-full ${i===0 ? 'bg-emerald-500' : 'bg-indigo-400'}`} style={{width: `${Math.min((p.sales / Math.max(...productStats.map(s=>s.sales), 1))*100, 100)}%`}}></div>
+                   </div>
+                   <div className="text-[10px] text-slate-400 flex justify-between font-mono">
+                     <span>{p.sku}</span><span>{p.profit > 0 ? `+${p.profit.toLocaleString()} ﷼` : 'خسارة'}</span>
                    </div>
                  </div>
                ))}
@@ -437,25 +524,37 @@ export default function App() {
           </div>
         </div>
 
-        {/* Products Intelligence */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-           <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Package size={18} className="text-blue-500"/> ذكاء المنتجات (Top Performers)</h3>
-           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-             {productStats.slice(0,3).map((p, i) => (
-               <div key={i} className="bg-slate-50 rounded-xl p-4 border border-slate-100 flex justify-between items-center">
-                 <div>
-                   <p className="font-bold text-sm text-slate-800 truncate">{p.name}</p>
-                   <p className="text-[10px] text-slate-500 font-mono">{p.sku}</p>
+        {/* SECTION 4: CHANNELS PERFORMANCE */}
+        <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
+           <h3 className="font-black text-slate-800 mb-6 flex items-center gap-2"><PieChart className="text-blue-500"/> أداء القنوات التسويقية</h3>
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+             {Object.entries(channelStats).filter(([ch])=>ch!=='المنتجات الفردية').sort((a,b)=>b[1].score - a[1].score).map(([ch, data], i) => (
+               <div key={i} className="bg-slate-50 p-6 rounded-2xl border border-slate-100 flex flex-col justify-between hover:shadow-md transition-shadow">
+                 <div className="mb-4">
+                   <h4 className="text-sm font-black text-slate-800 flex justify-between items-center mb-4">
+                     <span className="truncate pr-1">{ch}</span>
+                     <span className={`text-[10px] font-black px-2.5 py-1 rounded-lg border ${data.roi >= 2 ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-rose-100 text-rose-700 border-rose-200'}`}>
+                       ROI: {data.roi===Infinity ? 'عضوي' : data.roi.toFixed(1)+'x'}
+                     </span>
+                   </h4>
+                   <div className="space-y-3 text-xs font-bold text-slate-600">
+                     <div className="flex justify-between"><span>الإيراد</span><span className="text-slate-900">{data.revenue.toLocaleString()} ﷼</span></div>
+                     <div className="flex justify-between"><span>التكلفة</span><span className="text-rose-600">{data.adCost.toLocaleString()} ﷼</span></div>
+                     <div className="flex justify-between"><span>الربح</span><span className={data.netProfit >= 0 ? "text-emerald-600" : "text-rose-600"}>{data.netProfit.toLocaleString()} ﷼</span></div>
+                   </div>
                  </div>
-                 <div className="text-right">
-                   <p className="font-black text-emerald-600 text-sm">{p.profit.toLocaleString()} ﷼</p>
-                   <p className="text-[10px] text-slate-500">{p.sales} وحدة مباعة</p>
+                 <div className="pt-4 border-t border-slate-200">
+                   <div className="flex justify-between items-center">
+                     <span className="text-[10px] font-bold text-slate-400">الحالة</span>
+                     <span className={`text-[11px] font-black ${data.score >= 2 ? 'text-emerald-500' : data.score > 0 ? 'text-amber-500' : 'text-rose-500'}`}>
+                       {data.score >= 2 ? 'ممتاز 🔥' : data.score > 0 ? 'مقبول ⚠️' : 'يحتاج تدخل ❌'}
+                     </span>
+                   </div>
                  </div>
                </div>
              ))}
            </div>
         </div>
-
       </div>
     );
   };
@@ -471,13 +570,13 @@ export default function App() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 relative z-10">
             {businessDecisions.length === 0 ? <div className="col-span-2 text-center text-slate-400 py-10 font-bold bg-white/5 rounded-2xl">لا توجد توصيات حرجة حالياً. أرقامك مستقرة!</div> : 
               businessDecisions.map((d, i) => (
-                <div key={i} className="bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl p-5 flex items-start gap-4">
-                  <div className={`p-3 rounded-xl flex-shrink-0 ${d.type === 'scale' ? 'bg-emerald-500/20 text-emerald-400' : d.type === 'stop' ? 'bg-rose-500/20 text-rose-400' : d.type==='product-good'? 'bg-blue-500/20 text-blue-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                    {d.type === 'scale' ? <TrendingUp/> : d.type === 'stop' ? <X/> : d.type === 'product-good' ? <Package/> : <AlertOctagon/>}
+                <div key={i} className={`bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl p-5 flex items-start gap-4 ${d.color}`}>
+                  <div className="mt-0.5 bg-white/20 p-2 rounded-lg">
+                    {d.iconType === 'scale' ? <TrendingUp size={20}/> : d.iconType === 'stop' ? <X size={20}/> : d.iconType === 'product-good' ? <CheckCircle2 size={20}/> : d.iconType === 'warning' ? <AlertTriangle size={20}/> : <AlertOctagon size={20}/>}
                   </div>
                   <div>
-                    <h4 className="font-bold text-white mb-1">{d.type === 'scale' ? 'فرصة نمو مؤكدة' : d.type === 'stop' ? 'إيقاف استنزاف' : d.type==='product-good' ? 'بطل المبيعات' : 'تحذير أداء'}</h4>
-                    <p className="text-sm text-slate-300 leading-relaxed">{d.msg}</p>
+                    <h4 className="font-bold mb-1 text-white">{d.iconType === 'scale' ? 'فرصة نمو مؤكدة' : d.iconType === 'stop' ? 'إيقاف استنزاف' : d.iconType==='product-good' ? 'بطل المبيعات' : 'تحذير أداء'}</h4>
+                    <p className="text-sm opacity-90 leading-relaxed text-white">{d.msg}</p>
                   </div>
                 </div>
             ))}
@@ -497,7 +596,7 @@ export default function App() {
 
     const unitCost = simData.glass + simData.cap + simData.pump + simData.oil + simData.box + simData.carton + simData.filling + simData.packaging + simData.printing + simData.other;
     const unitProfit = simData.price - unitCost - simData.shipping - simData.commission;
-    const effectiveProfit = unitProfit * (1 - (simData.returnRate/100)) - (simData.shipping * (simData.returnRate/100)); // خصم الشحن المعاكس للمرتجعات
+    const effectiveProfit = unitProfit * (1 - (simData.returnRate/100)) - (simData.shipping * (simData.returnRate/100)); 
     const breakEven = effectiveProfit > 0 ? Math.ceil(simData.adBudget / effectiveProfit) : 0;
 
     return (
@@ -513,7 +612,6 @@ export default function App() {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2 space-y-8">
-              {/* التكاليف */}
               <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
                 <h4 className="font-bold text-sm text-slate-800 mb-4 flex items-center gap-2"><Package size={16}/> تكاليف التصنيع (للعلبة)</h4>
                 <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
@@ -530,9 +628,8 @@ export default function App() {
                 <div className="mt-4 text-left font-black text-sm text-slate-700 bg-white p-2 rounded-lg border inline-block">إجمالي تكلفة العلبة: {unitCost.toFixed(2)} ﷼</div>
               </div>
 
-              {/* التشغيل والبيع */}
               <div className="bg-indigo-50/50 p-5 rounded-2xl border border-indigo-100">
-                <h4 className="font-bold text-sm text-indigo-900 mb-4 flex items-center gap-2"><ShoppingCart size={16}/> التسعير والتشغيل</h4>
+                <h4 className="font-bold text-sm text-indigo-900 mb-4 flex items-center gap-2"><ShoppingBag size={16}/> التسعير والتشغيل</h4>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div><label className="block text-[10px] font-bold text-indigo-700 mb-1">سعر البيع النهائي</label><input type="number" className="w-full bg-white border border-indigo-200 p-2 rounded-lg text-sm text-center focus:ring-2 outline-none font-bold" value={simData.price} onChange={e=>handleCalc('price', e.target.value)} /></div>
                   <div><label className="block text-[10px] font-bold text-indigo-700 mb-1">متوسط الشحن للطلب</label><input type="number" className="w-full bg-white border border-indigo-200 p-2 rounded-lg text-sm text-center outline-none" value={simData.shipping} onChange={e=>handleCalc('shipping', e.target.value)} /></div>
@@ -541,7 +638,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* التسويق */}
               <div className="bg-orange-50/50 p-5 rounded-2xl border border-orange-100">
                 <h4 className="font-bold text-sm text-orange-900 mb-4 flex items-center gap-2"><Megaphone size={16}/> حملة تسويقية (توقعات)</h4>
                 <div className="grid grid-cols-2 gap-4">
@@ -549,14 +645,11 @@ export default function App() {
                   <div><label className="block text-[10px] font-bold text-orange-700 mb-1">الطلبات المتوقعة من الحملة</label><input type="number" className="w-full bg-white border border-orange-200 p-2 rounded-lg text-sm text-center outline-none" value={simData.expectedOrders} onChange={e=>handleCalc('expectedOrders', e.target.value)} /></div>
                 </div>
               </div>
-
             </div>
 
-            {/* Results Panel */}
             <div className="bg-slate-900 rounded-3xl p-6 text-white flex flex-col justify-between shadow-lg">
                <div>
                  <h3 className="font-black text-xl mb-6 text-emerald-400">النتائج وصناعة القرار</h3>
-                 
                  <div className="space-y-4 mb-8">
                    <div className="flex justify-between items-center border-b border-slate-700 pb-2">
                      <span className="text-slate-400 text-sm">صافي ربح الطلب (بعد المرتجع)</span>
@@ -572,13 +665,11 @@ export default function App() {
                    </div>
                  </div>
                </div>
-
                <div className="bg-emerald-500/20 p-5 rounded-2xl border border-emerald-500/30 text-center">
                  <p className="text-xs text-emerald-300 font-bold mb-1">الربح الصافي المتوقع من الحملة</p>
                  <p className="text-3xl font-black text-emerald-400">{((simData.expectedOrders * effectiveProfit) - simData.adBudget).toLocaleString()} ﷼</p>
                </div>
             </div>
-
           </div>
         </div>
       </div>
@@ -586,7 +677,6 @@ export default function App() {
   };
 
   const OrdersAndCRMTab = ({ mode = 'orders' }) => {
-    // mode: 'orders' or 'crm'
     const [searchTerm, setSearchTerm] = useState('');
     
     const filteredOrders = useMemo(() => {
@@ -601,50 +691,52 @@ export default function App() {
 
     return (
       <div className="space-y-6 animate-in fade-in">
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-          <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-50/50">
+        <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
+          <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-slate-50/50">
             <div>
-              <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">{mode === 'orders' ? <ShoppingBag className="text-indigo-500"/> : <UsersRound className="text-indigo-500"/>} {mode === 'orders' ? 'سجل الطلبات الواردة' : 'قاعدة بيانات العملاء (CRM)'}</h2>
-              <p className="text-xs text-slate-500 mt-1">{mode === 'orders' ? 'يعرض جميع الطلبات التي تم استيرادها.' : 'يتم بناء بيانات العملاء وتصنيفهم تلقائياً من الطلبات.'}</p>
+              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">{mode === 'orders' ? <ShoppingBag className="text-indigo-500" size={28}/> : <UsersRound className="text-indigo-500" size={28}/>} {mode === 'orders' ? 'الطلبات' : 'العملاء (CRM)'}</h2>
+              <p className="text-sm text-slate-500 mt-2">{mode === 'orders' ? 'سجل كافة الطلبات الواردة من المتجر.' : 'قاعدة بيانات العملاء وتصنيفهم الذكي.'}</p>
             </div>
-            <div className="w-full md:w-64">
-              <input type="text" placeholder="بحث باسم، رقم، أو جوال..." className="w-full p-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} />
+            <div className="w-full md:w-80 relative">
+              <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input type="text" placeholder="بحث برقم، اسم، أو جوال..." className="w-full pl-4 pr-12 py-3 rounded-2xl border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none bg-white shadow-sm" value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} />
             </div>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-right text-sm">
-              <thead className="bg-slate-100 text-slate-600 text-xs uppercase tracking-wider">
+              <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-widest font-bold">
                 {mode === 'orders' ? (
-                  <tr><th className="p-4 font-bold border-b">المرجع</th><th className="p-4 font-bold border-b">التاريخ</th><th className="p-4 font-bold border-b">العميل</th><th className="p-4 font-bold border-b">الجوال</th><th className="p-4 font-bold border-b">القناة</th><th className="p-4 font-bold border-b">المبلغ</th></tr>
+                  <tr><th className="p-6 border-b">رقم الطلب</th><th className="p-6 border-b">التاريخ</th><th className="p-6 border-b">العميل</th><th className="p-6 border-b">الجوال</th><th className="p-6 border-b">القناة</th><th className="p-6 border-b">المبلغ</th><th className="p-6 border-b">الحالة</th></tr>
                 ) : (
-                  <tr><th className="p-4 font-bold border-b">اسم العميل</th><th className="p-4 font-bold border-b">الجوال</th><th className="p-4 font-bold border-b text-center">الطلبات</th><th className="p-4 font-bold border-b">إجمالي الدفع</th><th className="p-4 font-bold border-b">آخر طلب</th><th className="p-4 font-bold border-b">التصنيف</th></tr>
+                  <tr><th className="p-6 border-b">اسم العميل</th><th className="p-6 border-b">الجوال</th><th className="p-6 border-b text-center">عدد الطلبات</th><th className="p-6 border-b">إجمالي الإنفاق</th><th className="p-6 border-b">آخر طلب</th><th className="p-6 border-b">التصنيف</th></tr>
                 )}
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-slate-100">
                 {mode === 'orders' ? (
-                  filteredOrders.length === 0 ? <tr><td colSpan="6" className="p-8 text-center text-slate-400">لا توجد طلبات.</td></tr> :
+                  filteredOrders.length === 0 ? <tr><td colSpan="7" className="p-12 text-center text-slate-400 font-bold">لا توجد طلبات مطابقة.</td></tr> :
                   filteredOrders.slice(0, 100).map((o, i) => (
-                    <tr key={i} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-4 font-mono text-slate-500 text-xs">{o.reference}</td>
-                      <td className="p-4 text-xs text-slate-600">{o.date}</td>
-                      <td className="p-4 font-bold text-slate-800">{o.customerName}</td>
-                      <td className="p-4 text-slate-500 font-mono" dir="ltr">{o.mobile}</td>
-                      <td className="p-4"><span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded-md text-[10px] font-bold">{o.channel}</span></td>
-                      <td className="p-4 font-black text-emerald-600">{parseFloat(o.amount||0).toLocaleString()} ﷼</td>
+                    <tr key={i} className="hover:bg-indigo-50/30 transition-colors">
+                      <td className="p-6 font-mono text-slate-500 text-xs">{o.reference}</td>
+                      <td className="p-6 text-xs text-slate-500 font-bold">{o.date}</td>
+                      <td className="p-6 font-black text-slate-800">{o.customerName}</td>
+                      <td className="p-6 text-slate-500 font-mono text-xs" dir="ltr">{o.mobile}</td>
+                      <td className="p-6"><span className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg text-[10px] font-bold">{o.channel}</span></td>
+                      <td className="p-6 font-black text-emerald-600">{parseFloat(o.amount||0).toLocaleString()} ﷼</td>
+                      <td className="p-6"><span className={`px-3 py-1.5 rounded-lg text-[10px] font-bold ${o.status === 'مكتمل' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{o.status}</span></td>
                     </tr>
                   ))
                 ) : (
-                  filteredCRM.length === 0 ? <tr><td colSpan="6" className="p-8 text-center text-slate-400">لا يوجد عملاء.</td></tr> :
+                  filteredCRM.length === 0 ? <tr><td colSpan="6" className="p-12 text-center text-slate-400 font-bold">لا يوجد عملاء.</td></tr> :
                   filteredCRM.slice(0, 100).map((c, i) => (
-                    <tr key={i} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-4 font-bold text-slate-800">{c.name}</td>
-                      <td className="p-4 text-slate-500 font-mono text-xs" dir="ltr">{c.mobile}</td>
-                      <td className="p-4 font-black text-center text-indigo-600">{c.orderCount}</td>
-                      <td className="p-4 font-bold text-emerald-600">{c.totalSpend.toLocaleString()} ﷼</td>
-                      <td className="p-4 text-xs text-slate-500">{c.lastOrder} <span className="text-[10px] text-slate-400">({c.daysSince} يوم)</span></td>
-                      <td className="p-4">
-                        <span className={`px-2 py-1 rounded-md text-[10px] font-bold ${c.segment.includes('VIP') ? 'bg-amber-100 text-amber-700' : c.segment.includes('معرض') ? 'bg-orange-100 text-orange-700' : c.segment.includes('منقطع') ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                    <tr key={i} className="hover:bg-indigo-50/30 transition-colors">
+                      <td className="p-6 font-black text-slate-800">{c.name}</td>
+                      <td className="p-6 text-slate-500 font-mono text-xs" dir="ltr">{c.mobile}</td>
+                      <td className="p-6 font-black text-center text-indigo-600 text-lg">{c.orderCount}</td>
+                      <td className="p-6 font-black text-emerald-600">{c.totalSpend.toLocaleString()} ﷼</td>
+                      <td className="p-6 text-xs text-slate-500 font-bold">{c.lastOrder} <span className="block text-[10px] text-slate-400 mt-1">منذ {c.daysSince} يوم</span></td>
+                      <td className="p-6">
+                        <span className={`px-3 py-1.5 rounded-lg text-xs font-black ${c.segment.includes('VIP') ? 'bg-amber-100 text-amber-700' : c.segment.includes('معرض') ? 'bg-orange-100 text-orange-700' : c.segment.includes('منقطع') ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
                           {c.segment}
                         </span>
                       </td>
@@ -653,7 +745,7 @@ export default function App() {
                 )}
               </tbody>
             </table>
-            {(mode==='orders' ? filteredOrders.length : filteredCRM.length) > 100 && <div className="p-4 text-center text-xs text-slate-400 border-t">يتم عرض أحدث 100 سجل فقط للسرعة.</div>}
+            {(mode==='orders' ? filteredOrders.length : filteredCRM.length) > 100 && <div className="p-6 text-center text-xs font-bold text-slate-400 border-t border-slate-100">يتم عرض أحدث 100 سجل فقط.</div>}
           </div>
         </div>
       </div>
@@ -662,39 +754,36 @@ export default function App() {
 
   const DataAdminTab = () => {
     const [confirmText, setConfirmText] = useState('');
-    const [nukeTarget, setNukeTarget] = useState(null); // 'movements', 'orders', 'adcosts'
+    const [nukeTarget, setNukeTarget] = useState(null); 
 
     const handleNuke = async () => {
-      if (confirmText !== 'DELETE') { alert('اكتب DELETE للتأكيد'); return; }
+      if (confirmText !== 'DELETE') { alert('يجب كتابة DELETE بالأحرف الكبيرة للتأكيد'); return; }
       setIsSyncing(true);
       try {
         let collectionName = nukeTarget;
         let dataArray = nukeTarget === 'movements' ? movements : nukeTarget === 'orders' ? orders : adCosts;
         
-        // Firestore batch delete loop
         const batchSize = 100;
         for (let i = 0; i < dataArray.length; i += batchSize) {
           const chunk = dataArray.slice(i, i + batchSize);
           const batch = writeBatch(db);
-          chunk.forEach(docItem => {
-            batch.delete(doc(db, 'artifacts', appId, 'public', 'data', collectionName, docItem.id));
-          });
+          chunk.forEach(docItem => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', collectionName, docItem.id)));
           await batch.commit();
         }
-        alert('تم المسح بنجاح');
+        alert('تم مسح البيانات بنجاح');
         setConfirmText(''); setNukeTarget(null);
-      } catch(e) { console.error(e); alert('خطأ'); } finally { setIsSyncing(false); }
+      } catch(e) { console.error(e); alert('خطأ أثناء المسح'); } finally { setIsSyncing(false); }
     };
 
     return (
-      <div className="space-y-6 animate-in fade-in max-w-2xl mx-auto">
-        <div className="bg-rose-50 border-2 border-rose-200 p-8 rounded-3xl shadow-sm relative overflow-hidden">
-          {isSyncing && <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10"><Loader2 className="animate-spin text-rose-600" size={40} /></div>}
-          <div className="flex items-center gap-4 mb-8 border-b border-rose-200 pb-6">
-            <div className="p-4 bg-rose-600 text-white rounded-2xl"><ShieldAlert size={32}/></div>
+      <div className="space-y-6 animate-in fade-in max-w-3xl mx-auto">
+        <div className="bg-rose-50 border-2 border-rose-200 p-10 rounded-[2rem] shadow-sm relative overflow-hidden">
+          {isSyncing && <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10"><Loader2 className="animate-spin text-rose-600" size={48} /></div>}
+          <div className="flex items-center gap-5 mb-10 border-b border-rose-200 pb-8">
+            <div className="p-5 bg-rose-600 text-white rounded-3xl shadow-lg shadow-rose-200"><ShieldAlert size={40}/></div>
             <div>
-              <h2 className="text-2xl font-black text-rose-900">منطقة الخطر (Data Admin)</h2>
-              <p className="text-sm text-rose-700 mt-1 font-bold">تحذير: لا يمكن استرجاع البيانات بعد حذفها.</p>
+              <h2 className="text-3xl font-black text-rose-900">منطقة الخطر (Data Admin)</h2>
+              <p className="text-sm text-rose-700 mt-2 font-bold">إجراءات لا رجعة فيها. استخدمها فقط لإعادة ضبط النظام.</p>
             </div>
           </div>
 
@@ -704,19 +793,19 @@ export default function App() {
               { target: 'orders', title: 'مسح جميع الطلبات المستوردة', count: orders.length },
               { target: 'adcosts', title: 'مسح سجل تكاليف التسويق', count: adCosts.length }
             ].map(act => (
-              <div key={act.target} className="bg-white p-5 rounded-2xl border border-rose-100 flex justify-between items-center">
+              <div key={act.target} className="bg-white p-6 rounded-2xl border border-rose-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                  <h4 className="font-bold text-rose-900">{act.title}</h4>
-                  <p className="text-xs text-rose-500 font-mono mt-1">{act.count} سجل متوفر</p>
+                  <h4 className="font-black text-rose-900 text-lg">{act.title}</h4>
+                  <p className="text-sm text-rose-500 font-mono mt-1 font-bold">{act.count} سجل متوفر</p>
                 </div>
                 {nukeTarget === act.target ? (
-                  <div className="flex gap-2 items-center">
-                    <input type="text" placeholder="اكتب DELETE" className="p-2 border border-rose-300 rounded outline-none text-xs w-28 text-center font-bold text-rose-700" value={confirmText} onChange={e=>setConfirmText(e.target.value)}/>
-                    <button onClick={handleNuke} className="bg-rose-600 text-white px-4 py-2 rounded text-xs font-bold hover:bg-rose-700">تأكيد المسح</button>
-                    <button onClick={()=>{setNukeTarget(null);setConfirmText('');}} className="bg-slate-200 text-slate-700 px-3 py-2 rounded text-xs font-bold">إلغاء</button>
+                  <div className="flex gap-2 items-center w-full md:w-auto bg-rose-50 p-2 rounded-xl border border-rose-100">
+                    <input type="text" placeholder="اكتب DELETE" className="p-3 border border-rose-300 rounded-lg outline-none text-sm w-32 text-center font-black text-rose-700" value={confirmText} onChange={e=>setConfirmText(e.target.value)}/>
+                    <button onClick={handleNuke} className="bg-rose-600 text-white px-6 py-3 rounded-lg text-sm font-black hover:bg-rose-700 transition-colors shadow-md">تأكيد</button>
+                    <button onClick={()=>{setNukeTarget(null);setConfirmText('');}} className="bg-white text-slate-700 px-4 py-3 rounded-lg text-sm font-bold border border-slate-200">إلغاء</button>
                   </div>
                 ) : (
-                  <button onClick={()=>setNukeTarget(act.target)} disabled={act.count === 0} className="bg-rose-100 text-rose-700 px-6 py-2 rounded-xl text-sm font-bold hover:bg-rose-200 disabled:opacity-50">مسح البيانات</button>
+                  <button onClick={()=>setNukeTarget(act.target)} disabled={act.count === 0} className="w-full md:w-auto bg-rose-100 text-rose-700 px-8 py-3 rounded-xl text-sm font-black hover:bg-rose-200 disabled:opacity-50 transition-colors">تحديد للمسح</button>
                 )}
               </div>
             ))}
@@ -726,7 +815,6 @@ export default function App() {
     );
   };
 
-  // --- REFACTORED UPLOAD (Orders + Movements) ---
   const UploadTab = () => {
     const fileInputRef = useRef(null);
     const [importPreview, setImportPreview] = useState(null);
@@ -809,13 +897,9 @@ export default function App() {
       if(!importPreview || importPreview.movements.length === 0) return;
       setIsSyncing(true);
       try {
-        // We will batch insert both orders and movements
         const batchSize = 50; 
-        
-        // 1. Insert Orders
-        // Remove duplicate orders based on reference to avoid cluttering CRM
         const uniqueOrders = [];
-        const seenRefs = new Set();
+        const seenRefs = new Set(orders.map(o => o.reference)); // Prevent total duplicates
         for (const o of importPreview.orders) {
           if (!seenRefs.has(o.reference)) { seenRefs.add(o.reference); uniqueOrders.push(o); }
         }
@@ -831,7 +915,6 @@ export default function App() {
           await batch.commit();
         }
 
-        // 2. Insert Movements
         for (let i = 0; i < importPreview.movements.length; i += batchSize) {
           const chunk = importPreview.movements.slice(i, i + batchSize);
           const batch = writeBatch(db);
@@ -853,38 +936,38 @@ export default function App() {
         <p className="text-slate-500 text-sm mb-8">ارفع ملفات سلة لبناء بيانات المخزون، الإيرادات، وقاعدة بيانات العملاء دفعة واحدة.</p>
 
         {importPreview ? (
-          <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-6">
-            <h4 className="font-bold text-indigo-900 mb-4 flex items-center gap-2"><CheckCircle2/> تأكيد استيراد البيانات</h4>
-            <div className="flex gap-6 mb-6">
-              <div className="bg-white p-4 rounded-xl flex-1 text-center shadow-sm">
-                <span className="block text-3xl font-black text-indigo-600 mb-1">{importPreview.orders.length}</span><span className="text-xs font-bold text-slate-500">طلب جديد سيبني الـ CRM</span>
+          <div className="bg-indigo-50 border border-indigo-100 rounded-3xl p-8">
+            <h4 className="font-black text-indigo-900 mb-6 flex items-center gap-2 text-lg"><CheckCircle2/> تأكيد استيراد البيانات</h4>
+            <div className="flex flex-col md:flex-row gap-6 mb-8">
+              <div className="bg-white p-6 rounded-2xl flex-1 text-center shadow-sm border border-indigo-100/50">
+                <span className="block text-4xl font-black text-indigo-600 mb-2">{importPreview.orders.length}</span><span className="text-sm font-bold text-slate-500">طلب (يبني الـ CRM)</span>
               </div>
-              <div className="bg-white p-4 rounded-xl flex-1 text-center shadow-sm">
-                <span className="block text-3xl font-black text-emerald-600 mb-1">{importPreview.movements.length}</span><span className="text-xs font-bold text-slate-500">حركة مخزون ستحدث الأرباح</span>
+              <div className="bg-white p-6 rounded-2xl flex-1 text-center shadow-sm border border-indigo-100/50">
+                <span className="block text-4xl font-black text-emerald-600 mb-2">{importPreview.movements.length}</span><span className="text-sm font-bold text-slate-500">حركة مخزون ومالية</span>
               </div>
             </div>
-            <div className="flex gap-3">
-              <button onClick={confirmImport} disabled={isSyncing} className="flex-1 bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700">{isSyncing ? 'جاري المعالجة...' : 'تأكيد واعتماد'}</button>
-              <button onClick={()=>setImportPreview(null)} disabled={isSyncing} className="bg-white text-slate-700 border font-bold py-3 px-6 rounded-xl hover:bg-slate-50">إلغاء</button>
+            <div className="flex gap-4">
+              <button onClick={confirmImport} disabled={isSyncing} className="flex-1 bg-indigo-600 text-white font-black py-4 rounded-xl hover:bg-indigo-700 shadow-md transition-colors">{isSyncing ? 'جاري المعالجة...' : 'تأكيد واعتماد الرفع'}</button>
+              <button onClick={()=>setImportPreview(null)} disabled={isSyncing} className="bg-white text-slate-700 border font-bold py-4 px-8 rounded-xl hover:bg-slate-50 transition-colors">إلغاء</button>
             </div>
           </div>
         ) : (
-          <div className="flex flex-col md:flex-row gap-6 items-center bg-slate-50 p-6 rounded-2xl border border-slate-100 border-dashed">
+          <div className="flex flex-col md:flex-row gap-6 items-center bg-slate-50 p-8 rounded-3xl border border-slate-200 border-dashed">
             <div className="flex-1 w-full">
-              <label className="flex items-center gap-3 bg-white p-4 rounded-xl border border-slate-200 cursor-pointer hover:border-indigo-500 transition-colors mb-3">
+              <label className="flex items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200 cursor-pointer hover:border-indigo-500 transition-colors mb-4 shadow-sm">
                 <input type="radio" name="mode" className="accent-indigo-600 w-5 h-5" checked={importMode==='sales'} onChange={()=>setImportMode('sales')}/>
-                <div><p className="font-bold text-slate-800">مبيعات (تم التوصيل)</p><p className="text-[10px] text-slate-500">يضيف إيرادات ويبني عملاء</p></div>
+                <div><p className="font-black text-slate-800 text-base">مبيعات (تم التوصيل)</p><p className="text-xs font-bold text-slate-500 mt-1">يضيف إيرادات ويبني عملاء</p></div>
               </label>
-              <label className="flex items-center gap-3 bg-white p-4 rounded-xl border border-slate-200 cursor-pointer hover:border-rose-500 transition-colors">
+              <label className="flex items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200 cursor-pointer hover:border-rose-500 transition-colors shadow-sm">
                 <input type="radio" name="mode" className="accent-rose-600 w-5 h-5" checked={importMode==='returns'} onChange={()=>setImportMode('returns')}/>
-                <div><p className="font-bold text-slate-800">مرتجعات (دعم فني)</p><p className="text-[10px] text-slate-500">يخصم إيرادات ويسترد بضاعة</p></div>
+                <div><p className="font-black text-slate-800 text-base">مرتجعات (دعم فني)</p><p className="text-xs font-bold text-slate-500 mt-1">يخصم إيرادات ويسترد بضاعة</p></div>
               </label>
             </div>
             <div className="w-full md:w-1/2">
               <input type="file" accept=".csv, .xlsx, .xls" ref={fileInputRef} onChange={handleFileUpload} className="hidden" id="file-upload"/>
-              <label htmlFor="file-upload" className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors shadow-sm h-full min-h-[140px]">
-                <FileSpreadsheet size={32}/>
-                <span>اختيار ورفع ملف (سلة)</span>
+              <label htmlFor="file-upload" className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-6 rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer transition-colors shadow-lg h-full min-h-[160px]">
+                <FileSpreadsheet size={40}/>
+                <span className="text-lg">اختيار ورفع ملف (سلة)</span>
               </label>
             </div>
           </div>
@@ -901,28 +984,32 @@ export default function App() {
 
     const handleSubmit = async (e) => {
       e.preventDefault();
-      await addMovementToCloud(formData);
-      setFormData({ ...formData, quantity: 1, reference: '', note: '' });
-      alert('تم التسجيل بنجاح');
+      setIsSyncing(true);
+      try {
+        const movementId = `mov_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'movements', movementId), { ...formData, timestamp: Date.now() });
+        setFormData({ ...formData, quantity: 1, reference: '', note: '' });
+        alert('تم التسجيل بنجاح');
+      } catch(e) { alert('خطأ'); } finally { setIsSyncing(false); }
     };
 
     return (
       <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm animate-in fade-in mt-6">
-        <h3 className="text-xl font-bold mb-6 text-slate-800 border-b border-slate-100 pb-4">إدخال مخزون يدوي (طوارئ / جرد)</h3>
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div><label className="block text-xs font-bold mb-1 text-slate-600">التاريخ</label><input type="date" required className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} /></div>
-          <div><label className="block text-xs font-bold mb-1 text-slate-600">المستوى</label><select className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.level} onChange={e => setFormData({...formData, level: e.target.value})}><option value="منتج">منتج فردي</option><option value="بكج">بكج / عرض</option></select></div>
+        <h3 className="text-xl font-black mb-6 text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-4"><Plus className="text-indigo-500"/> إدخال مخزون يدوي (طوارئ / جرد)</h3>
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-5">
+          <div><label className="block text-xs font-bold mb-1.5 text-slate-500 uppercase tracking-widest">التاريخ</label><input type="date" required className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none font-bold text-sm" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} /></div>
+          <div><label className="block text-xs font-bold mb-1.5 text-slate-500 uppercase tracking-widest">المستوى</label><select className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none font-bold text-sm" value={formData.level} onChange={e => setFormData({...formData, level: e.target.value})}><option value="منتج">منتج فردي</option><option value="بكج">بكج / عرض</option></select></div>
           <div>
-            <label className="block text-xs font-bold mb-1 text-slate-600">الكود</label>
-            <select className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})} required>
+            <label className="block text-xs font-bold mb-1.5 text-slate-500 uppercase tracking-widest">الكود</label>
+            <select className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none font-bold text-sm" value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})} required>
               {formData.level === 'منتج' ? Object.keys(productDetails).map(p => <option key={p} value={p}>{p} - {productDetails[p].name}</option>) : Object.keys(packages).map(p => <option key={p} value={p}>{p} - {packages[p].name}</option>)}
             </select>
           </div>
-          <div><label className="block text-xs font-bold mb-1 text-slate-600">النوع</label><select className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>{MOVEMENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.id}</option>)}</select></div>
-          <div><label className="block text-xs font-bold mb-1 text-slate-600">الكمية</label><input type="number" min="1" required className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.quantity} onChange={e => setFormData({...formData, quantity: e.target.value})} /></div>
-          <div><label className="block text-xs font-bold mb-1 text-slate-600">المرجع</label><input type="text" className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.reference} onChange={e => setFormData({...formData, reference: e.target.value})} /></div>
-          <div className="md:col-span-2"><label className="block text-xs font-bold mb-1 text-slate-600">ملاحظات</label><input type="text" className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})} /></div>
-          <div className="md:col-span-4 mt-2"><button type="submit" disabled={isSyncing} className="w-full bg-slate-800 text-white p-3.5 rounded-xl font-bold hover:bg-slate-900 transition-colors">تنفيذ الحركة</button></div>
+          <div><label className="block text-xs font-bold mb-1.5 text-slate-500 uppercase tracking-widest">النوع</label><select className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none font-bold text-sm" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>{MOVEMENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.id}</option>)}</select></div>
+          <div><label className="block text-xs font-bold mb-1.5 text-slate-500 uppercase tracking-widest">الكمية</label><input type="number" min="1" required className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none font-bold text-sm" value={formData.quantity} onChange={e => setFormData({...formData, quantity: e.target.value})} /></div>
+          <div><label className="block text-xs font-bold mb-1.5 text-slate-500 uppercase tracking-widest">المرجع</label><input type="text" className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none font-bold text-sm" value={formData.reference} onChange={e => setFormData({...formData, reference: e.target.value})} /></div>
+          <div className="md:col-span-2"><label className="block text-xs font-bold mb-1.5 text-slate-500 uppercase tracking-widest">ملاحظات</label><input type="text" className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none font-bold text-sm" value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})} /></div>
+          <div className="md:col-span-4 mt-2"><button type="submit" disabled={isSyncing} className="w-full bg-slate-800 text-white p-4 rounded-xl font-black hover:bg-slate-900 transition-colors shadow-md">تنفيذ الحركة</button></div>
         </form>
       </div>
     );
@@ -970,53 +1057,46 @@ export default function App() {
     );
   }
 
-  const navItems = [
-    { id: 'dashboard', label: 'لوحة التحكم', icon: <LayoutDashboard size={18}/>, roles: ['super_admin', 'admin', 'editor', 'viewer'] },
-    { id: 'movements', label: 'المبيعات والحركات', icon: <ArrowRightLeft size={18}/>, roles: ['super_admin', 'admin', 'editor'] },
-    { id: 'orders', label: 'الطلبات', icon: <ShoppingBag size={18}/>, roles: ['super_admin', 'admin', 'editor'] },
-    { id: 'crm', label: 'العملاء (CRM)', icon: <UsersRound size={18}/>, roles: ['super_admin', 'admin'] },
-    { id: 'adcosts', label: 'التسويق', icon: <Megaphone size={18}/>, roles: ['super_admin', 'admin'] },
-    { id: 'decision_center', label: 'مركز القرارات', icon: <BrainCircuit size={18}/>, roles: ['super_admin'] },
-    { id: 'profit_simulator', label: 'محاكي الأرباح', icon: <Calculator size={18}/>, roles: ['super_admin'] },
-    { id: 'definitions', label: 'الإعدادات', icon: <Tags size={18}/>, roles: ['super_admin', 'admin'] },
-    { id: 'users', label: 'المستخدمين', icon: <Users size={18}/>, roles: ['super_admin'] },
-    { id: 'data_admin', label: 'إدارة البيانات', icon: <ShieldAlert size={18}/>, roles: ['super_admin'] }
-  ];
-
   return (
-    <div className="min-h-screen bg-slate-50 font-sans" dir="rtl">
-      {/* SaaS Navbar */}
-      <nav className="bg-white border-b border-slate-200 sticky top-0 z-50">
-        <div className="max-w-[1400px] mx-auto px-4">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-800" dir="rtl">
+      <nav className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
+        <div className="max-w-[1600px] mx-auto px-4 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-sm">
-                <Activity size={18} className="text-white"/>
+              <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center shadow-md shadow-indigo-200">
+                <Activity size={20} className="text-white"/>
               </div>
-              <span className="font-black text-lg text-slate-800 tracking-tight hidden sm:block">Asparkle<span className="text-indigo-600">OS</span></span>
+              <span className="font-black text-xl text-slate-800 tracking-tight hidden sm:block">Asparkle<span className="text-indigo-600">OS</span></span>
             </div>
             
             <div className="flex-1 flex justify-center overflow-x-auto scrollbar-hide px-4 mask-edges space-x-1 space-x-reverse">
               {navItems.filter(item => item.roles.includes(currentUserRole)).map(item => (
-                <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${activeTab === item.id ? 'bg-slate-100 text-indigo-700' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'}`}>
-                  {item.icon} <span className="hidden md:inline">{item.label}</span>
+                <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${activeTab === item.id ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'}`}>
+                  {item.icon} <span className="hidden lg:inline">{item.label}</span>
                 </button>
               ))}
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="hidden sm:flex flex-col items-end">
-                <span className="text-[10px] font-bold text-slate-400">متصل كـ {currentUserRole}</span>
-                <span className="text-[9px] text-emerald-500 flex items-center gap-1"><Cloud size={10}/> سحابي</span>
+            <div className="flex items-center gap-4 border-r border-slate-100 pr-4">
+              <div className="hidden md:flex flex-col items-end">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{currentUserRole}</span>
+                <span className="text-[10px] font-bold text-emerald-500 flex items-center gap-1"><Cloud size={10}/> متصل</span>
               </div>
-              <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"><CloudOff size={18}/></button>
+              <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors"><CloudOff size={20}/></button>
             </div>
           </div>
         </div>
       </nav>
 
-      {/* Main Content Wrapper */}
-      <main className="max-w-[1400px] mx-auto px-4 py-8">
+      <div className="md:hidden fixed bottom-0 w-full bg-white border-t border-slate-200 z-50 px-2 py-2 flex justify-between overflow-x-auto scrollbar-hide shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
+        {navItems.filter(item => item.roles.includes(currentUserRole)).slice(0,5).map(item => (
+          <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex flex-col items-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === item.id ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>
+            {item.icon} <span className="text-[9px] font-bold">{item.label.split(' ')[0]}</span>
+          </button>
+        ))}
+      </div>
+
+      <main className="max-w-[1600px] mx-auto px-4 lg:px-8 py-8 mb-20 md:mb-8">
         {activeTab === 'dashboard' && <DashboardTab />}
         {activeTab === 'movements' && hasAccess(['super_admin', 'admin', 'editor']) && <><UploadTab/><ManualMovementForm/></>}
         {activeTab === 'orders' && hasAccess(['super_admin', 'admin', 'editor']) && <OrdersAndCRMTab mode="orders"/>}
@@ -1028,8 +1108,8 @@ export default function App() {
         {activeTab === 'users' && hasAccess(['super_admin']) && <UsersManagementTab />}
         {activeTab === 'data_admin' && hasAccess(['super_admin']) && <DataAdminTab />}
       </main>
-
-      <style dangerouslySetInnerHTML={{__html: `@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap'); body { font-family: 'Tajawal', sans-serif; } .scrollbar-hide::-webkit-scrollbar { display: none; } .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; } .mask-edges { -webkit-mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent); }`}} />
+      
+      <style dangerouslySetInnerHTML={{__html: `@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap'); body { font-family: 'Tajawal', sans-serif; background-color: #f8fafc; } .scrollbar-hide::-webkit-scrollbar { display: none; } .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; } .custom-scrollbar::-webkit-scrollbar { width: 4px; } .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 4px; } .mask-edges { -webkit-mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent); mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent); }`}} />
     </div>
   );
 }

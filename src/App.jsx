@@ -341,6 +341,66 @@ function App() {
     }
   };
 
+  const deleteCollectionInBatches = async (colName) => {
+    const snap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', colName));
+    for (let i = 0; i < snap.docs.length; i += 100) {
+      const batch = writeBatch(db);
+      snap.docs.slice(i, i + 100).forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+    return snap.docs.length;
+  };
+
+  const resetSalesData = async () => {
+    if (!safeConfirm('سيتم حذف جميع الطلبات والحركات. هل أنت متأكد؟')) return;
+    setIsSyncing(true);
+    try {
+      const deletedOrders = await deleteCollectionInBatches('orders');
+      const deletedMovements = await deleteCollectionInBatches('movements');
+      alert(`تم حذف ${deletedOrders} طلب و ${deletedMovements} حركة بنجاح`);
+    } catch (e) {
+      console.error(e);
+      alert('تعذر حذف بيانات المبيعات والحركات');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const resetMarketingData = async () => {
+    if (!safeConfirm('سيتم حذف جميع تكاليف التسويق. هل أنت متأكد؟')) return;
+    setIsSyncing(true);
+    try {
+      const deletedAdCosts = await deleteCollectionInBatches('adcosts');
+      alert(`تم حذف ${deletedAdCosts} سجل تسويقي بنجاح`);
+    } catch (e) {
+      console.error(e);
+      alert('تعذر حذف بيانات التسويق');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const resetAllBusinessData = async () => {
+    if (!safeConfirm('سيتم حذف الطلبات والحركات والتسويق. هل أنت متأكد تمامًا؟')) return;
+    setIsSyncing(true);
+    try {
+      const deletedOrders = await deleteCollectionInBatches('orders');
+      const deletedMovements = await deleteCollectionInBatches('movements');
+      const deletedAdCosts = await deleteCollectionInBatches('adcosts');
+      alert(
+        `تم حذف:\n` +
+        `- ${deletedOrders} طلب\n` +
+        `- ${deletedMovements} حركة\n` +
+        `- ${deletedAdCosts} سجل تسويقي`
+      );
+    } catch (e) {
+      console.error(e);
+      alert('تعذر حذف كل البيانات');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // --- 4. DATA MEMOS (Pre-processing & Protection) ---
   const parsedMovements = useMemo(() => {
     return movements.map(m => ({
@@ -469,7 +529,7 @@ function App() {
     movementsInPeriod.forEach(m => {
       if (!m.isSale && !m.isReturn) return;
       const multiplier = m.isSale ? 1 : -1;
-      if (m.level === 'منتج') {
+      if (m.level === 'منتج' && productDetails[m.code]) {
         const p = productDetails[m.code];
         if (!p || !result[m.code]) return;
         result[m.code].sales += m.qty * multiplier;
@@ -694,6 +754,273 @@ function App() {
              ))}
            </div>
         </div>
+      </div>
+    );
+  };
+
+  const UploadTab = () => {
+    const fileInputRef = useRef(null);
+    const [importPreview, setImportPreview] = useState(null);
+    const [importMode, setImportMode] = useState('sales');
+
+    const handleFileUpload = async (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      try {
+        const XLSX = await loadXLSX();
+        const reader = new FileReader();
+        
+        // خوارزمية متقدمة لقراءة التاريخ بجميع أشكاله
+        const normalizeDate = (value) => {
+          if (!value) return todayStr;
+
+          if (typeof value === 'number' && window.XLSX) {
+            try {
+              const date = window.XLSX.SSF.parse_date_code(value);
+              if (date) {
+                const mm = String(date.m).padStart(2, '0');
+                const dd = String(date.d).padStart(2, '0');
+                return `${date.y}-${mm}-${dd}`;
+              }
+            } catch (e) {
+              console.error(e);
+            }
+          }
+
+          const strVal = String(value).trim();
+
+          const isoMatch = strVal.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          if (isoMatch) return strVal;
+
+          const slashMatch = strVal.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+          if (slashMatch) {
+            const dd = String(slashMatch[1]).padStart(2, '0');
+            const mm = String(slashMatch[2]).padStart(2, '0');
+            const yyyy = slashMatch[3];
+            return `${yyyy}-${mm}-${dd}`;
+          }
+
+          const parsed = new Date(strVal);
+          if (!isNaN(parsed.getTime())) {
+            return parsed.toISOString().split('T')[0];
+          }
+
+          return todayStr;
+        };
+
+        reader.onload = async (event) => {
+          const data = new Uint8Array(event.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
+          if(rows.length < 2) return alert('ملف غير صالح');
+
+          const headers = rows[0].map(h => String(h || ''));
+          const dateCol = headers.findIndex(h => h.includes('التاريخ') || h.includes('تاريخ الطلب') || h.includes('Date') || h.includes('date'));
+          const orderIdCol = headers.findIndex(h => h.includes('رقم الطلب') || h.includes('رقم'));
+          const productCol = headers.findIndex(h => h.includes('نوع الطلب') || h.includes('المنتجات') || h.includes('اسم المنتج'));
+          const qtyCol = headers.findIndex(h => h.includes('الكمية') || h.includes('العدد') || h === 'Qty');
+          const paymentCol = headers.findIndex(h => h.includes('طريقة الدفع') || h.includes('الدفع'));
+          const customerCol = headers.findIndex(h => h.includes('اسم العميل') || h.includes('العميل'));
+          const mobileCol = headers.findIndex(h => h.includes('الجوال') || h.includes('هاتف'));
+          const amountCol = headers.findIndex(h => h.includes('إجمالي') || h.includes('المبلغ') || h.includes('مجموع'));
+
+          const parsedOrders = [];
+          const parsedMovementsLocal = [];
+          
+          for (let i = 1; i < rows.length; i++) {
+            const row = rows[i]; if(!row || row.length === 0) continue;
+            let orderId = row[orderIdCol] ? String(row[orderIdCol]).replace(/["']/g, '').replace(/^\uFEFF/, '') : '';
+            if(!orderId) continue;
+
+            const orderDate = dateCol !== -1 ? normalizeDate(row[dateCol]) : todayStr;
+
+            let productStr = productCol !== -1 ? String(row[productCol] || '') : '';
+            let paymentStr = paymentCol !== -1 ? String(row[paymentCol] || '') : '';
+            let customerName = customerCol !== -1 ? String(row[customerCol] || 'غير معروف') : 'غير معروف';
+            let mobile = mobileCol !== -1 ? String(row[mobileCol] || '').replace(/[^0-9+]/g, '') : '';
+            let amount = amountCol !== -1 ? parseFloat(row[amountCol]) || 0 : 0;
+            
+            let qty = 1;
+            if (qtyCol !== -1 && row[qtyCol] !== undefined && !isNaN(parseInt(row[qtyCol]))) { qty = parseInt(row[qtyCol]); } 
+            else { const qtyMatch = productStr.match(/Qty:\s*(\d+)/i); if (qtyMatch) qty = parseInt(qtyMatch[1]); }
+
+            let mappedCode = null; let mappedLevel = 'بكج';
+            const skuMatch = productStr.match(/SKU:\s*([a-zA-Z0-9_-]+)/i);
+            
+            if (skuMatch && packages[skuMatch[1]]) { mappedCode = skuMatch[1]; } 
+            else if (productStr.includes('مجموعة سباركل الكاملة') || productStr.includes('مجموعة سبارك الكاملة')) { mappedCode = 'asg002'; } 
+            else if (productStr.includes('بكج اسباركل') || productStr.includes('بكج التأسيس')) { mappedCode = 'asg001'; } 
+            else if (productStr.includes('بكج العساف')) { mappedCode = 'asg003'; } 
+            else if (productStr.includes('بكج الـ 7 عطور')) { mappedCode = 'asg002'; } 
+            else {
+              Object.entries(packages).forEach(([code, pkg]) => { if(productStr.includes(code) || productStr.includes(pkg.name)) mappedCode = code; });
+            }
+            if (!mappedCode) {
+              Object.keys(productDetails).forEach(sku => { if(productStr.includes(sku)) { mappedCode = sku; mappedLevel = 'منتج'; } });
+            }
+            if (!mappedCode) {
+              const firstPackageCode = Object.keys(packages)[0];
+              const firstProductCode = Object.keys(productDetails)[0];
+              mappedCode = firstPackageCode || firstProductCode;
+            }
+            if (!mappedCode) continue; // الحماية من الـ Bugs الصامتة
+
+            let movType = 'بيع آلي (عبر الربط)'; 
+            if (importMode === 'sales') {
+               if (paymentStr.includes('تمارا') || paymentStr.includes('تابي')) movType = 'بيع (تمارا)';
+               else if (paymentStr.includes('عند الاستلام') || paymentStr.includes('الدفع عند الاستلام')) movType = 'بيع (دفع عند الاستلام)';
+               else if (paymentStr !== '') movType = 'بيع (دفع إلكتروني)';
+            } else { movType = 'مرتجع (إلغاء رغبة العميل)'; }
+
+            const channelName = mappedLevel === 'بكج' ? (packages[mappedCode]?.channel || 'عضوي') : 'المنتجات الفردية';
+            
+            parsedOrders.push({ date: orderDate, reference: orderId, customerName, mobile, amount, channel: channelName, status: importMode==='sales'?'مكتمل':'مرتجع' });
+            parsedMovementsLocal.push({ date: orderDate, level: mappedLevel, code: mappedCode, type: movType, quantity: qty, reference: orderId, note: importMode === 'sales' ? 'استيراد مبيعات' : 'استيراد رجيع' });
+          }
+          setImportPreview({ orders: parsedOrders, movements: parsedMovementsLocal });
+          if (fileInputRef.current) fileInputRef.current.value = '';
+        };
+        reader.readAsArrayBuffer(file);
+      } catch (err) { alert('خطأ في القراءة'); }
+    };
+
+    const confirmImport = async () => {
+      if(!importPreview || importPreview.movements.length === 0) return;
+      setIsSyncing(true);
+      try {
+        const batchSize = 50; 
+        const dbOrderRefs = new Set([ ...orders.map(o => o.reference) ]); // الطلبات السابقة في النظام
+        
+        const uniqueOrders = [];
+        const seenNewRefs = new Set(); // لمنع التكرار داخل نفس الملف المرفوع
+
+        for (const o of importPreview.orders) {
+          if (dbOrderRefs.has(o.reference) || seenNewRefs.has(o.reference)) continue;
+          seenNewRefs.add(o.reference);
+          uniqueOrders.push(o);
+        }
+
+        const uniqueMovements = [];
+        for (const m of importPreview.movements) {
+          // نتخطى الحركات الخاصة بالطلبات التي تم رفعها سابقاً لتفادي تكرار المبيعات
+          if (dbOrderRefs.has(m.reference)) continue;
+          uniqueMovements.push(m);
+        }
+
+        const skippedOrders = importPreview.orders.length - uniqueOrders.length;
+        const skippedMovements = importPreview.movements.length - uniqueMovements.length;
+
+        const baseNow = Date.now();
+        for (let i = 0; i < uniqueOrders.length; i += batchSize) {
+          const chunk = uniqueOrders.slice(i, i + batchSize);
+          const batch = writeBatch(db);
+          chunk.forEach((ord, index) => {
+            const now = baseNow + i + index; 
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', `ord_${now}_${Math.random().toString(36).slice(2, 6)}`);
+            batch.set(docRef, { ...ord, timestamp: now });
+          });
+          await batch.commit();
+        }
+
+        for (let i = 0; i < uniqueMovements.length; i += batchSize) {
+          const chunk = uniqueMovements.slice(i, i + batchSize);
+          const batch = writeBatch(db);
+          chunk.forEach((mov, index) => {
+            const now = baseNow + i + index; 
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'movements', `mov_${now}_${Math.random().toString(36).slice(2, 6)}`);
+            batch.set(docRef, { ...mov, timestamp: now });
+          });
+          await batch.commit();
+        }
+        
+        alert(`تم رفع ${uniqueOrders.length} طلب و ${uniqueMovements.length} حركة بنجاح.\nتم تجاهل ${skippedOrders} طلب مكرر و ${skippedMovements} حركة مرتبطة بطلبات مكررة.`); 
+        setImportPreview(null);
+      } catch (e) { console.error(e); alert('خطأ أثناء الرفع'); } finally { setIsSyncing(false); }
+    };
+
+    return (
+      <div className="bg-white p-6 md:p-10 rounded-3xl border border-slate-100 shadow-sm animate-in fade-in">
+        <h2 className="text-2xl font-black text-slate-800 mb-2 flex items-center gap-3"><UploadCloud className="text-indigo-500" size={28}/> استيراد البيانات (ETL Engine)</h2>
+        <p className="text-slate-500 text-sm mb-8">ارفع ملفات سلة لبناء بيانات المخزون، الإيرادات، وقاعدة بيانات العملاء دفعة واحدة.</p>
+
+        {importPreview ? (
+          <div className="bg-indigo-50 border border-indigo-100 rounded-3xl p-8">
+            <h4 className="font-black text-indigo-900 mb-6 flex items-center gap-2 text-lg"><CheckCircle2/> تأكيد استيراد البيانات</h4>
+            <div className="flex flex-col md:flex-row gap-6 mb-8">
+              <div className="bg-white p-6 rounded-2xl flex-1 text-center shadow-sm border border-indigo-100/50">
+                <span className="block text-4xl font-black text-indigo-600 mb-2">{importPreview.orders.length}</span><span className="text-sm font-bold text-slate-500">طلب في الملف (سيتم تجاهل المكرر)</span>
+              </div>
+              <div className="bg-white p-6 rounded-2xl flex-1 text-center shadow-sm border border-indigo-100/50">
+                <span className="block text-4xl font-black text-emerald-600 mb-2">{importPreview.movements.length}</span><span className="text-sm font-bold text-slate-500">حركة مخزون محتملة</span>
+              </div>
+            </div>
+            <div className="flex gap-4">
+              <button onClick={confirmImport} disabled={isSyncing} className="flex-1 bg-indigo-600 text-white font-black py-4 rounded-xl hover:bg-indigo-700 shadow-md transition-colors">{isSyncing ? 'جاري المعالجة...' : 'تأكيد واعتماد الرفع'}</button>
+              <button onClick={()=>setImportPreview(null)} disabled={isSyncing} className="bg-white text-slate-700 border font-bold py-4 px-8 rounded-xl hover:bg-slate-50 transition-colors">إلغاء</button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col md:flex-row gap-6 items-center bg-slate-50 p-8 rounded-3xl border border-slate-200 border-dashed">
+            <div className="flex-1 w-full">
+              <label className="flex items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200 cursor-pointer hover:border-indigo-500 transition-colors mb-4 shadow-sm">
+                <input type="radio" name="mode" className="accent-indigo-600 w-5 h-5" checked={importMode==='sales'} onChange={()=>setImportMode('sales')}/>
+                <div><p className="font-black text-slate-800 text-base">مبيعات (تم التوصيل)</p><p className="text-xs font-bold text-slate-500 mt-1">يضيف إيرادات ويبني عملاء</p></div>
+              </label>
+              <label className="flex items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200 cursor-pointer hover:border-rose-500 transition-colors shadow-sm">
+                <input type="radio" name="mode" className="accent-rose-600 w-5 h-5" checked={importMode==='returns'} onChange={()=>setImportMode('returns')}/>
+                <div><p className="font-black text-slate-800 text-base">مرتجعات (دعم فني)</p><p className="text-xs font-bold text-slate-500 mt-1">يخصم إيرادات ويسترد بضاعة</p></div>
+              </label>
+            </div>
+            <div className="w-full md:w-1/2">
+              <input type="file" accept=".csv, .xlsx, .xls" ref={fileInputRef} onChange={handleFileUpload} className="hidden" id="file-upload"/>
+              <label htmlFor="file-upload" className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-6 rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer transition-colors shadow-lg h-full min-h-[160px]">
+                <FileSpreadsheet size={40}/>
+                <span className="text-lg">اختيار ورفع ملف (سلة)</span>
+              </label>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const ManualMovementForm = () => {
+    const defaultCode = Object.keys(productDetails)[0] || '';
+    const defaultPkgCode = Object.keys(packages)[0] || '';
+    const [formData, setFormData] = useState({ date: todayStr, level: 'منتج', code: defaultCode, type: MOVEMENT_TYPES[0].id, quantity: 1, reference: '', note: '' });
+    
+    useEffect(() => { 
+      setFormData(prev => ({ ...prev, code: prev.level === 'منتج' ? defaultCode : defaultPkgCode })); 
+    }, [productDetails, packages, formData.level]);
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      setIsSyncing(true);
+      try {
+        const movementId = `mov_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'movements', movementId), { ...formData, timestamp: Date.now() });
+        setFormData({ ...formData, quantity: 1, reference: '', note: '' });
+        alert('تم التسجيل بنجاح');
+      } catch(e) { alert('خطأ'); } finally { setIsSyncing(false); }
+    };
+
+    return (
+      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm animate-in fade-in mt-6">
+        <h3 className="text-xl font-bold mb-6 text-slate-800 border-b border-slate-100 pb-4">إدخال مخزون يدوي (طوارئ / جرد)</h3>
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div><label className="block text-xs font-bold mb-1 text-slate-600">التاريخ</label><input type="date" required className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} /></div>
+          <div><label className="block text-xs font-bold mb-1 text-slate-600">المستوى</label><select className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.level} onChange={e => setFormData({...formData, level: e.target.value})}><option value="منتج">منتج فردي</option><option value="بكج">بكج / عرض</option></select></div>
+          <div>
+            <label className="block text-xs font-bold mb-1 text-slate-600">الكود</label>
+            <select className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})} required>
+              {formData.level === 'منتج' ? Object.keys(productDetails).map(p => <option key={p} value={p}>{p} - {productDetails[p].name}</option>) : Object.keys(packages).map(p => <option key={p} value={p}>{p} - {packages[p].name}</option>)}
+            </select>
+          </div>
+          <div><label className="block text-xs font-bold mb-1 text-slate-600">النوع</label><select className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>{MOVEMENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.id}</option>)}</select></div>
+          <div><label className="block text-xs font-bold mb-1 text-slate-600">الكمية</label><input type="number" min="1" required className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.quantity} onChange={e => setFormData({...formData, quantity: e.target.value})} /></div>
+          <div><label className="block text-xs font-bold mb-1 text-slate-600">المرجع</label><input type="text" className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.reference} onChange={e => setFormData({...formData, reference: e.target.value})} /></div>
+          <div className="md:col-span-2"><label className="block text-xs font-bold mb-1 text-slate-600">ملاحظات</label><input type="text" className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})} /></div>
+          <div className="md:col-span-4 mt-2"><button type="submit" disabled={isSyncing} className="w-full bg-slate-800 text-white p-3.5 rounded-xl font-bold hover:bg-slate-900 transition-colors">تنفيذ الحركة</button></div>
+        </form>
       </div>
     );
   };
@@ -1145,7 +1472,7 @@ function App() {
             <input type="text" list="channels-list" placeholder="القناة" className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" value={channel} onChange={(e) => setChannel(e.target.value)} />
             <datalist id="channels-list">{channelsList.map((c) => <option key={c} value={c} />)}</datalist>
             <input type="text" placeholder="اسم الحملة" className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" value={campaign} onChange={(e) => setCampaign(e.target.value)} />
-            <input type="number" placeholder="التكلفة" className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" value={cost} onChange={(e) => setCost(e.target.value)} />
+            <input type="number" placeholder="التكلفة (ريال)" className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" value={cost} onChange={(e) => setCost(e.target.value)} />
             <button type="submit" className="bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl px-5 py-3">إضافة</button>
             <div className="md:col-span-5"><input type="text" placeholder="ملاحظات" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" value={note} onChange={(e) => setNote(e.target.value)} /></div>
           </form>
@@ -1485,7 +1812,6 @@ function App() {
         </div>
       </nav>
 
-      {/* Mobile Bottom Navigation */}
       <div className="md:hidden fixed bottom-0 w-full bg-white border-t border-slate-200 z-50 px-2 py-2 flex justify-between overflow-x-auto scrollbar-hide shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
         {navItems.filter(item => item.roles.includes(currentUserRole)).slice(0,5).map(item => (
           <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex flex-col items-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === item.id ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>
@@ -1494,7 +1820,6 @@ function App() {
         ))}
       </div>
 
-      {/* Main Content Wrapper */}
       <main className="max-w-[1600px] mx-auto px-4 lg:px-8 py-8 mb-20 md:mb-8">
         {activeTab === 'dashboard' && <DashboardTab />}
         {activeTab === 'movements' && hasAccess(['super_admin', 'admin', 'editor']) && <><UploadTab/><ManualMovementForm/></>}

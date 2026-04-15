@@ -305,7 +305,11 @@ export default function App() {
   
   const stockAsOfDate = useMemo(() => {
     let stock = {};
-    Object.values(productDetails).forEach(p => stock[p.sku] = parseInt(p.openingStock) || 0);
+    Object.values(productDetails).forEach(p => {
+      if (!p?.sku) return;
+      stock[p.sku] = parseInt(p.openingStock) || 0;
+    });
+
     parsedMovements.forEach(mov => {
       if (mov.date > endDate) return;
       const isOut = MOVEMENT_TYPES.find(t => t.id === mov.type)?.type === 'out';
@@ -395,7 +399,10 @@ export default function App() {
 
   const productStats = useMemo(() => {
     const result = {};
-    Object.values(productDetails).forEach(p => result[p.sku] = { name: p.name, sales: 0, revenue: 0, cost: 0, profit: 0 });
+    Object.values(productDetails).forEach(p => {
+      if(!p?.sku) return;
+      result[p.sku] = { name: p.name, sales: 0, revenue: 0, cost: 0, profit: 0 };
+    });
     movementsInPeriod.forEach(m => {
       if (!m.isSale && !m.isReturn) return;
       const multiplier = m.isSale ? 1 : -1;
@@ -440,7 +447,7 @@ export default function App() {
       if (data.adCost > 0 && data.roi < 1.5 && data.netSales > 0) decisions.push({ type: 'stop', iconType: 'stop', color: 'text-rose-700 bg-rose-100 border-rose-200', msg: `أوقف استنزاف الأموال في (${ch}) ❌ - العائد ضعيف.` });
       if (data.adCost > 0 && data.roi >= 3) decisions.push({ type: 'scale', iconType: 'scale', color: 'text-emerald-700 bg-emerald-100 border-emerald-200', msg: `ضاعف الميزانية في (${ch}) 🔥 - قناة تدر ذهباً!` });
     });
-    const topProduct = productStats.find(p => p.sales > 0);
+    const topProduct = [...productStats].find(p => p.sales > 0);
     const worstProduct = [...productStats].reverse().find(p => p.profit < 0);
     if (topProduct && topProduct.profit > 0) {
        decisions.push({ type: 'product-good', iconType: 'product-good', color: 'text-blue-700 bg-blue-100 border-blue-200', msg: `منتج (${topProduct.name}) هو البطل الرابح! 🌟 يدر أعلى أرباح مبيعات فردية.` });
@@ -480,6 +487,7 @@ export default function App() {
     const smartAlerts = useMemo(() => {
       const alerts = [];
       Object.values(productDetails).forEach(p => {
+        if(!p?.sku) return;
         const qty = stockAsOfDate[p.sku] || 0;
         if (qty < 30 && qty > 0) alerts.push({ type: 'danger', msg: `مخزون منخفض: ${p.name} (${qty} حبة)` });
         else if (qty === 0) alerts.push({ type: 'critical', msg: `نفاد مخزون: ${p.name} ❌` });
@@ -492,7 +500,6 @@ export default function App() {
 
     return (
       <div className="space-y-8 animate-in fade-in">
-        {/* 🔥 استعادة الفلتر العلوي كما طلبت */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-8">
           <button onClick={handleExportExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-3 rounded-xl flex items-center gap-2 shadow-sm">
             <Download size={18} /> تصدير التقرير (Excel)
@@ -676,6 +683,7 @@ export default function App() {
               Object.keys(productDetails).forEach(sku => { if(productStr.includes(sku)) { mappedCode = sku; mappedLevel = 'منتج'; } });
             }
             if (!mappedCode) mappedCode = Object.keys(packages)[0] || Object.keys(productDetails)[0];
+            if (!mappedCode) continue;
 
             let movType = 'بيع آلي (عبر الربط)'; 
             if (importMode === 'sales') {
@@ -701,10 +709,22 @@ export default function App() {
       setIsSyncing(true);
       try {
         const batchSize = 50; 
+        const dbOrderRefs = new Set(orders.map(o => o.reference)); // الطلبات السابقة في النظام
+        
         const uniqueOrders = [];
-        const seenRefs = new Set(orders.map(o => o.reference)); 
+        const seenNewRefs = new Set(); // لمنع التكرار داخل نفس الملف المرفوع
+
         for (const o of importPreview.orders) {
-          if (!seenRefs.has(o.reference)) { seenRefs.add(o.reference); uniqueOrders.push(o); }
+          if (dbOrderRefs.has(o.reference) || seenNewRefs.has(o.reference)) continue;
+          seenNewRefs.add(o.reference);
+          uniqueOrders.push(o);
+        }
+
+        const uniqueMovements = [];
+        for (const m of importPreview.movements) {
+          // نتخطى الحركات الخاصة بالطلبات التي تم رفعها سابقاً لتفادي تكرار المبيعات
+          if (dbOrderRefs.has(m.reference)) continue;
+          uniqueMovements.push(m);
         }
 
         for (let i = 0; i < uniqueOrders.length; i += batchSize) {
@@ -718,8 +738,8 @@ export default function App() {
           await batch.commit();
         }
 
-        for (let i = 0; i < importPreview.movements.length; i += batchSize) {
-          const chunk = importPreview.movements.slice(i, i + batchSize);
+        for (let i = 0; i < uniqueMovements.length; i += batchSize) {
+          const chunk = uniqueMovements.slice(i, i + batchSize);
           const batch = writeBatch(db);
           chunk.forEach((mov, index) => {
             const now = Date.now() + index; 
@@ -729,7 +749,8 @@ export default function App() {
           await batch.commit();
         }
         
-        alert('تم دمج العمليات وبناء قاعدة العملاء بنجاح!'); setImportPreview(null);
+        alert(`تم رفع وتحديث ${uniqueMovements.length} حركة بنجاح!`); 
+        setImportPreview(null);
       } catch (e) { console.error(e); alert('خطأ أثناء الرفع'); } finally { setIsSyncing(false); }
     };
 
@@ -743,10 +764,10 @@ export default function App() {
             <h4 className="font-black text-indigo-900 mb-6 flex items-center gap-2 text-lg"><CheckCircle2/> تأكيد استيراد البيانات</h4>
             <div className="flex flex-col md:flex-row gap-6 mb-8">
               <div className="bg-white p-6 rounded-2xl flex-1 text-center shadow-sm border border-indigo-100/50">
-                <span className="block text-4xl font-black text-indigo-600 mb-2">{importPreview.orders.length}</span><span className="text-sm font-bold text-slate-500">طلب (يبني الـ CRM)</span>
+                <span className="block text-4xl font-black text-indigo-600 mb-2">{importPreview.orders.length}</span><span className="text-sm font-bold text-slate-500">طلب في الملف (سيتم تجاهل المكرر)</span>
               </div>
               <div className="bg-white p-6 rounded-2xl flex-1 text-center shadow-sm border border-indigo-100/50">
-                <span className="block text-4xl font-black text-emerald-600 mb-2">{importPreview.movements.length}</span><span className="text-sm font-bold text-slate-500">حركة مخزون ومالية</span>
+                <span className="block text-4xl font-black text-emerald-600 mb-2">{importPreview.movements.length}</span><span className="text-sm font-bold text-slate-500">حركة مخزون محتملة</span>
               </div>
             </div>
             <div className="flex gap-4">
@@ -1072,475 +1093,6 @@ export default function App() {
       </div>
     );
   };
-
-  const AdCostsTab = () => {
-    const [date, setDate] = useState(todayStr);
-    const [channel, setChannel] = useState(channelsList[0] || '');
-    const [campaign, setCampaign] = useState('');
-    const [cost, setCost] = useState('');
-    const [note, setNote] = useState('');
-
-    const handleAdd = async (e) => {
-      e.preventDefault();
-      if (!channel || !cost) return;
-
-      setIsSyncing(true);
-      try {
-        const id = `ad_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'adcosts', id), {
-          date,
-          channel: channel.trim(),
-          campaign: campaign.trim(),
-          cost: parseFloat(cost) || 0,
-          note: note.trim(),
-          timestamp: Date.now(),
-        });
-
-        setCampaign('');
-        setCost('');
-        setNote('');
-      } catch (err) {
-        console.error(err);
-        alert('حدث خطأ أثناء حفظ تكلفة التسويق');
-      } finally {
-        setIsSyncing(false);
-      }
-    };
-
-    const handleDelete = async (id) => {
-      if (!safeConfirm('هل تريد حذف هذا السجل؟')) return;
-      setIsSyncing(true);
-      try {
-        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'adcosts', id));
-      } catch (err) {
-        console.error(err);
-        alert('تعذر حذف السجل');
-      } finally {
-        setIsSyncing(false);
-      }
-    };
-
-    return (
-      <div className="space-y-6 animate-in fade-in">
-        <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
-          <h2 className="text-2xl font-black text-slate-800 mb-2 flex items-center gap-3">
-            <Megaphone className="text-rose-500" size={28} />
-            التسويق
-          </h2>
-          <p className="text-sm text-slate-500 mb-8">إدارة تكاليف الحملات والقنوات التسويقية لضبط الـ ROI.</p>
-
-          <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
-            <input type="date" className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"
-              value={date} onChange={(e) => setDate(e.target.value)} />
-
-            <input type="text" list="channels-list" placeholder="القناة"
-              className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"
-              value={channel} onChange={(e) => setChannel(e.target.value)} />
-            <datalist id="channels-list">
-              {channelsList.map((c) => <option key={c} value={c} />)}
-            </datalist>
-
-            <input type="text" placeholder="اسم الحملة"
-              className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"
-              value={campaign} onChange={(e) => setCampaign(e.target.value)} />
-
-            <input type="number" placeholder="التكلفة (ريال)"
-              className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"
-              value={cost} onChange={(e) => setCost(e.target.value)} />
-
-            <button type="submit"
-              className="bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl px-5 py-3">
-              إضافة
-            </button>
-
-            <div className="md:col-span-5">
-              <input type="text" placeholder="ملاحظات"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"
-                value={note} onChange={(e) => setNote(e.target.value)} />
-            </div>
-          </form>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-sm">
-              <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-widest font-bold">
-                <tr>
-                  <th className="p-4 border-b">التاريخ</th>
-                  <th className="p-4 border-b">القناة</th>
-                  <th className="p-4 border-b">الحملة</th>
-                  <th className="p-4 border-b">التكلفة</th>
-                  <th className="p-4 border-b">ملاحظات</th>
-                  <th className="p-4 border-b">إجراء</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {adCosts.length === 0 ? (
-                  <tr>
-                    <td colSpan="6" className="p-10 text-center text-slate-400 font-bold">لا توجد سجلات تسويق.</td>
-                  </tr>
-                ) : (
-                  adCosts.map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-4">{item.date}</td>
-                      <td className="p-4 font-bold">{item.channel}</td>
-                      <td className="p-4">{item.campaign || '-'}</td>
-                      <td className="p-4 font-black text-rose-600">{(parseFloat(item.cost) || 0).toLocaleString()} ﷼</td>
-                      <td className="p-4 text-slate-500">{item.note || '-'}</td>
-                      <td className="p-4">
-                        <button
-                          onClick={() => handleDelete(item.id)}
-                          className="text-rose-600 hover:text-rose-800 font-bold"
-                        >
-                          حذف
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const DefinitionsTab = () => {
-    const [newSku, setNewSku] = useState('');
-    const [newName, setNewName] = useState('');
-    const [newOpeningStock, setNewOpeningStock] = useState('0');
-    const [newOpeningDate, setNewOpeningDate] = useState(todayStr);
-    const [newCost, setNewCost] = useState('0');
-    const [newSellingPrice, setNewSellingPrice] = useState('0');
-    
-    const [editingSku, setEditingSku] = useState(null);
-    const [editData, setEditData] = useState({});
-
-    const [pkgCode, setPkgCode] = useState('');
-    const [pkgName, setPkgName] = useState('');
-    const [pkgGroup, setPkgGroup] = useState('');
-    const [pkgChannel, setPkgChannel] = useState('');
-    const [pkgPrice, setPkgPrice] = useState('');
-    const [pkgItems, setPkgItems] = useState({});
-    const [itemSelectSku, setItemSelectSku] = useState(Object.keys(productDetails)[0] || '');
-    const [itemSelectQty, setItemSelectQty] = useState(1);
-
-    const [newChannelStr, setNewChannelStr] = useState('');
-
-    const handleAddProduct = () => {
-      const skuTrimmed = newSku.trim();
-      if (!skuTrimmed || productDetails[skuTrimmed]) { alert("SKU غير صالح أو موجود مسبقاً"); return; }
-      const newDetails = { ...productDetails };
-      newDetails[skuTrimmed] = { sku: skuTrimmed, name: newName.trim() || skuTrimmed, openingStock: parseInt(newOpeningStock) || 0, openingDate: newOpeningDate || todayStr, unitCost: parseFloat(newCost) || 0, sellingPrice: parseFloat(newSellingPrice) || 0 };
-      updateSettingsInCloud(newDetails, packages, channelsList);
-      setNewSku(''); setNewName(''); setNewOpeningStock('0'); setNewCost('0'); setNewSellingPrice('0');
-    };
-
-    const handleSaveEditProduct = () => {
-      const newDetails = { ...productDetails };
-      newDetails[editingSku] = { ...newDetails[editingSku], name: editData.name, openingStock: parseInt(editData.openingStock) || 0, openingDate: editData.openingDate, unitCost: parseFloat(editData.unitCost) || 0, sellingPrice: parseFloat(editData.sellingPrice) || 0 };
-      updateSettingsInCloud(newDetails, packages, channelsList);
-      setEditingSku(null);
-    };
-
-    const handleDeleteProduct = (sku) => {
-      if(safeConfirm(`هل أنت متأكد من حذف ${sku}؟`)) {
-        const newDetails = { ...productDetails }; delete newDetails[sku];
-        updateSettingsInCloud(newDetails, packages, channelsList);
-      }
-    };
-
-    const handleAddPackageItem = () => {
-      if (!itemSelectSku) return;
-      setPkgItems(prev => ({ ...prev, [itemSelectSku]: (prev[itemSelectSku] || 0) + parseInt(itemSelectQty) }));
-      setItemSelectQty(1);
-    };
-
-    const handleRemovePackageItem = (sku) => { const newItems = { ...pkgItems }; delete newItems[sku]; setPkgItems(newItems); };
-
-    const handleAddPackage = () => {
-      if (!pkgCode.trim() || !pkgName.trim() || Object.keys(pkgItems).length === 0) { alert("أكمل بيانات البكج"); return; }
-      const newPackages = { ...packages, [pkgCode.trim()]: { name: pkgName.trim(), group: pkgGroup.trim() || pkgName.trim(), channel: pkgChannel.trim() || 'عام', price: parseFloat(pkgPrice) || 0, items: pkgItems } };
-      updateSettingsInCloud(productDetails, newPackages, channelsList);
-      setPkgCode(''); setPkgName(''); setPkgGroup(''); setPkgChannel(''); setPkgPrice(''); setPkgItems({});
-    };
-
-    const handleAddChannel = () => {
-      if(!newChannelStr.trim() || channelsList.includes(newChannelStr.trim())) return;
-      updateSettingsInCloud(productDetails, packages, [...channelsList, newChannelStr.trim()]);
-      setNewChannelStr('');
-    };
-    const handleRemoveChannel = (ch) => {
-      if(safeConfirm('حذف القناة؟')) updateSettingsInCloud(productDetails, packages, channelsList.filter(c => c !== ch));
-    };
-
-    return (
-      <div className="space-y-6 animate-in fade-in pb-10">
-        
-        {/* --- المنتجات --- */}
-        <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm relative">
-           {isSyncing && <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center rounded-3xl z-10"><Loader2 className="animate-spin text-indigo-600" size={40} /></div>}
-           <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-3 border-b border-slate-100 pb-4">
-             <Package size={24} className="text-blue-500"/> التأسيس: المنتجات (SKUs)
-           </h3>
-           <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl mb-6 text-xs text-amber-800 font-bold flex items-center gap-3">
-             <AlertTriangle size={16} className="text-amber-600 shrink-0"/> النظام لن يحسب الحركات التي تسبق "تاريخ الافتتاح" لمنع التكرار!
-           </div>
-
-           <div className="grid grid-cols-1 md:grid-cols-7 gap-3 bg-slate-50 p-5 rounded-2xl border border-slate-100 mb-8">
-             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">SKU</label><input type="text" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={newSku} onChange={e=>setNewSku(e.target.value)} /></div>
-             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">الاسم</label><input type="text" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={newName} onChange={e=>setNewName(e.target.value)} /></div>
-             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">افتتاحي</label><input type="number" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm text-blue-600" value={newOpeningStock} onChange={e=>setNewOpeningStock(e.target.value)} /></div>
-             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">تاريخ</label><input type="date" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={newOpeningDate} onChange={e=>setNewOpeningDate(e.target.value)} /></div>
-             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">تكلفة</label><input type="number" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm text-orange-600 focus:ring-2 ring-orange-500" value={newCost} onChange={e=>setNewCost(e.target.value)} /></div>
-             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">بيع</label><input type="number" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm text-emerald-600 focus:ring-2 ring-emerald-500" value={newSellingPrice} onChange={e=>setNewSellingPrice(e.target.value)} /></div>
-             <div className="flex items-end"><button onClick={handleAddProduct} className="w-full bg-blue-600 text-white p-2.5 rounded-xl text-sm font-black hover:bg-blue-700 shadow-sm transition-colors">إضافة</button></div>
-           </div>
-
-           <div className="overflow-x-auto">
-             <table className="w-full text-right text-sm">
-               <thead className="bg-slate-100 text-slate-500 text-[10px] uppercase tracking-widest font-black">
-                 <tr><th className="p-4 border-b rounded-tr-xl">SKU</th><th className="p-4 border-b">المنتج</th><th className="p-4 border-b">افتتاحي</th><th className="p-4 border-b">التاريخ</th><th className="p-4 border-b">التكلفة</th><th className="p-4 border-b">البيع</th><th className="p-4 border-b text-center rounded-tl-xl">إجراء</th></tr>
-               </thead>
-               <tbody className="divide-y divide-slate-50">
-                 {Object.values(productDetails).map(p => (
-                   <tr key={p.sku} className="hover:bg-slate-50 transition-colors">
-                     <td className="p-4 font-mono font-bold text-slate-800 text-xs">{p.sku}</td>
-                     {editingSku === p.sku ? (
-                       <>
-                         <td className="p-2"><input type="text" className="w-full p-2 text-xs border rounded-lg" value={editData.name} onChange={e=>setEditData({...editData, name: e.target.value})} /></td>
-                         <td className="p-2"><input type="number" className="w-20 p-2 text-xs border rounded-lg font-bold text-blue-600" value={editData.openingStock} onChange={e=>setEditData({...editData, openingStock: e.target.value})} /></td>
-                         <td className="p-2"><input type="date" className="w-32 p-2 text-xs border rounded-lg" value={editData.openingDate} onChange={e=>setEditData({...editData, openingDate: e.target.value})} /></td>
-                         <td className="p-2"><input type="number" className="w-20 p-2 text-xs border rounded-lg font-bold text-orange-600" value={editData.unitCost} onChange={e=>setEditData({...editData, unitCost: e.target.value})} /></td>
-                         <td className="p-2"><input type="number" className="w-20 p-2 text-xs border rounded-lg font-bold text-emerald-600" value={editData.sellingPrice} onChange={e=>setEditData({...editData, sellingPrice: e.target.value})} /></td>
-                         <td className="p-2 text-center flex justify-center gap-2">
-                           <button onClick={handleSaveEditProduct} className="bg-emerald-500 text-white p-2 rounded-lg shadow-sm"><Check size={14}/></button>
-                           <button onClick={() => setEditingSku(null)} className="bg-slate-300 text-slate-700 p-2 rounded-lg shadow-sm"><X size={14}/></button>
-                         </td>
-                       </>
-                     ) : (
-                       <>
-                         <td className="p-4 font-bold text-slate-700">{p.name}</td>
-                         <td className="p-4 font-black text-blue-600 text-lg">{p.openingStock}</td>
-                         <td className="p-4 text-xs text-slate-500 font-bold">{p.openingDate}</td>
-                         <td className="p-4 font-black text-orange-600">{p.unitCost} ﷼</td>
-                         <td className="p-4 font-black text-emerald-600">{p.sellingPrice || 0} ﷼</td>
-                         <td className="p-4 text-center flex justify-center gap-3">
-                           <button onClick={() => { setEditingSku(p.sku); setEditData(p); }} className="text-slate-400 hover:text-blue-500 transition-colors"><Edit2 size={16}/></button>
-                           <button onClick={() => handleDeleteProduct(p.sku)} className="text-slate-400 hover:text-rose-500 transition-colors"><Trash2 size={16}/></button>
-                         </td>
-                       </>
-                     )}
-                   </tr>
-                 ))}
-               </tbody>
-             </table>
-           </div>
-        </div>
-
-        {/* --- القنوات التسويقية --- */}
-        <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm">
-          <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-3 border-b border-slate-100 pb-4"><Target size={24} className="text-indigo-500"/> قنوات التسويق (Channels)</h3>
-          <div className="flex flex-wrap gap-3 mb-6">
-            {channelsList.map(ch => (
-              <div key={ch} className="bg-slate-100 text-slate-700 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 border border-slate-200">
-                {ch} <button onClick={()=>handleRemoveChannel(ch)} className="text-slate-400 hover:text-rose-500"><X size={14}/></button>
-              </div>
-            ))}
-          </div>
-          <div className="flex gap-3 max-w-sm">
-            <input type="text" placeholder="اسم القناة الجديدة..." className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-sm focus:ring-2 ring-indigo-500" value={newChannelStr} onChange={e=>setNewChannelStr(e.target.value)}/>
-            <button onClick={handleAddChannel} className="bg-indigo-600 text-white px-6 rounded-xl font-black text-sm shadow-sm hover:bg-indigo-700">إضافة</button>
-          </div>
-        </div>
-
-        {/* --- البكجات --- */}
-        <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm relative">
-           <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-3 border-b border-slate-100 pb-4">
-             <PackageOpen size={24} className="text-purple-500"/> إدارة البكجات والتسعير
-           </h3>
-
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
-             {Object.entries(packages).map(([code, pkg]) => (
-               <div key={code} className="bg-white border-2 border-slate-100 rounded-2xl p-6 flex flex-col relative group hover:border-purple-200 transition-colors shadow-sm">
-                 <div className="absolute top-4 left-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                   <button onClick={() => { setPkgCode(code); setPkgName(pkg.name); setPkgGroup(pkg.group); setPkgChannel(pkg.channel); setPkgPrice(pkg.price); setPkgItems({...pkg.items}); }} className="text-slate-400 hover:text-blue-500 bg-white rounded-lg p-1.5 shadow-sm border"><Edit2 size={16}/></button>
-                   <button onClick={() => handleDeletePackage(code)} className="text-slate-400 hover:text-rose-500 bg-white rounded-lg p-1.5 shadow-sm border"><Trash2 size={16}/></button>
-                 </div>
-
-                 <div className="font-black text-lg text-slate-800 mb-2 pr-6 truncate">{pkg.name}</div>
-                 <div className="flex items-center gap-3 mb-4">
-                    <div className="text-xs text-indigo-600 font-mono bg-indigo-50 px-2.5 py-1 rounded-lg font-bold">{code}</div>
-                    <div className="text-[11px] text-emerald-700 font-black bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">{pkg.price} ﷼</div>
-                 </div>
-                 
-                 <div className="space-y-2 mb-5 flex-1">
-                   <div className="flex justify-between items-center text-xs font-bold text-slate-500"><span>المجموعة:</span> <span className="text-slate-700 truncate">{pkg.group}</span></div>
-                   <div className="flex justify-between items-center text-xs font-bold text-slate-500"><span>القناة:</span> <span className="text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md truncate">{pkg.channel}</span></div>
-                 </div>
-
-                 <div className="border-t border-slate-100 pt-4">
-                   <div className="flex flex-wrap gap-1.5">
-                     {Object.entries(pkg.items).map(([sku, qty]) => (
-                       <span key={sku} className="text-[10px] font-black bg-slate-50 border border-slate-200 text-slate-600 px-2 py-1 rounded-lg flex items-center gap-1.5">
-                         <span dir="ltr">{sku}</span> <span className="text-indigo-500 text-[10px]">x{qty}</span>
-                       </span>
-                     ))}
-                   </div>
-                 </div>
-               </div>
-             ))}
-           </div>
-
-           <div id="package-form" className={`rounded-2xl border-2 p-6 md:p-8 ${Object.keys(packages).includes(pkgCode.trim()) ? 'bg-purple-50 border-purple-200' : 'bg-slate-50 border-slate-200 border-dashed'}`}>
-             <h4 className="font-black text-lg mb-6 flex items-center gap-2 text-slate-800"><Plus size={20}/> {Object.keys(packages).includes(pkgCode.trim()) ? 'تحديث بيانات البكج' : 'إنشاء بكج جديد'}</h4>
-             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-               <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">كود البكج</label><input type="text" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm font-mono" value={pkgCode} onChange={e=>setPkgCode(e.target.value)} disabled={Object.keys(packages).includes(pkgCode.trim())} /></div>
-               <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">اسم البكج</label><input type="text" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={pkgName} onChange={e=>setPkgName(e.target.value)} /></div>
-               <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">السعر (للأرباح)</label><input type="number" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-black text-sm text-emerald-600 focus:ring-2 ring-emerald-500" value={pkgPrice} onChange={e=>setPkgPrice(e.target.value)} /></div>
-               <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">المجموعة</label><input type="text" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={pkgGroup} onChange={e=>setPkgGroup(e.target.value)} /></div>
-               <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">القناة / المشهور</label>
-                  <input type="text" list="pkg-channels" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={pkgChannel} onChange={e=>setPkgChannel(e.target.value)} />
-                  <datalist id="pkg-channels">{channelsList.map(c=><option key={c} value={c}/>)}</datalist>
-               </div>
-
-               <div className="md:col-span-5 bg-white p-5 rounded-2xl border border-slate-200 mt-4 shadow-sm">
-                 <label className="block text-xs font-black text-slate-800 mb-4 flex items-center gap-2"><Package size={16}/> محتويات البكج (SKUs):</label>
-                 <div className="flex flex-wrap items-center gap-3 mb-5">
-                   <select className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold flex-1 outline-none focus:ring-2 ring-indigo-500" value={itemSelectSku} onChange={e=>setItemSelectSku(e.target.value)}>
-                     {Object.keys(productDetails).map(sku => <option key={sku} value={sku}>{sku} - {productDetails[sku].name}</option>)}
-                   </select>
-                   <input type="number" min="1" className="w-24 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black text-center outline-none" value={itemSelectQty} onChange={e=>setItemSelectQty(e.target.value)} />
-                   <button onClick={handleAddPackageItem} className="bg-slate-800 text-white px-6 py-3 rounded-xl text-sm font-black hover:bg-slate-900 transition-colors shadow-md">إدراج</button>
-                 </div>
-                 {Object.keys(pkgItems).length > 0 && (
-                   <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-100">
-                     {Object.entries(pkgItems).map(([sku, qty]) => (
-                       <div key={sku} className="flex items-center gap-2 bg-indigo-50 text-indigo-900 px-3 py-2 rounded-xl text-xs font-bold border border-indigo-100">
-                         <span dir="ltr">{sku}</span> <span className="bg-white px-2 py-0.5 rounded-lg text-indigo-500 shadow-sm">x{qty}</span>
-                         <button onClick={()=>handleRemovePackageItem(sku)} className="text-indigo-300 hover:text-rose-500 transition-colors ml-1"><X size={14}/></button>
-                       </div>
-                     ))}
-                   </div>
-                 )}
-               </div>
-
-               <div className="md:col-span-5 mt-4 flex gap-3">
-                 <button onClick={handleAddPackage} className="flex-1 bg-purple-600 text-white p-4 rounded-xl font-black text-base shadow-md hover:bg-purple-700 transition-colors">حفظ واعتماد البكج</button>
-                 {Object.keys(packages).includes(pkgCode.trim()) && (
-                   <button onClick={() => {setPkgCode(''); setPkgName(''); setPkgGroup(''); setPkgChannel(''); setPkgPrice(''); setPkgItems({});}} className="bg-white text-slate-700 p-4 rounded-xl font-bold border border-slate-200 hover:bg-slate-50 transition-colors">إلغاء التعديل</button>
-                 )}
-               </div>
-             </div>
-           </div>
-        </div>
-      </div>
-    );
-  };
-
-  const UsersManagementTab = () => {
-    const [newUserEmail, setNewUserEmail] = useState('');
-    const [newUserRole, setNewUserRole] = useState('viewer');
-
-    const handleAddPermission = async (e) => {
-      e.preventDefault(); if(!newUserEmail.trim()) return;
-      setIsSyncing(true);
-      try {
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'permissions'), { ...permissions, [newUserEmail.trim().toLowerCase()]: newUserRole });
-        setNewUserEmail('');
-      } catch(e) { alert('خطأ'); } finally { setIsSyncing(false); }
-    };
-
-    const handleRemovePermission = async (emailToRemove) => {
-      if(emailToRemove === user.email) return alert('لا يمكنك إزالة نفسك!');
-      if(safeConfirm(`حذف ${emailToRemove}؟`)) {
-        const newPerms = { ...permissions }; delete newPerms[emailToRemove];
-        setIsSyncing(true);
-        try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'permissions'), newPerms); } 
-        catch(e) { console.error(e); } finally { setIsSyncing(false); }
-      }
-    };
-
-    return (
-      <div className="space-y-6 animate-in fade-in max-w-4xl mx-auto">
-        <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm relative">
-           {isSyncing && <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center z-10 rounded-3xl"><Loader2 className="animate-spin text-blue-600" size={40} /></div>}
-           <div className="flex items-center gap-4 mb-8 border-b border-slate-100 pb-6">
-             <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl"><Shield size={28} /></div>
-             <div>
-               <h3 className="text-2xl font-black text-slate-800">صلاحيات الوصول (Access Control)</h3>
-               <p className="text-sm text-slate-500 mt-1">تأكد من إنشاء الحسابات أولاً في منصة Firebase قبل منحها الصلاحيات هنا.</p>
-             </div>
-           </div>
-
-           <form onSubmit={handleAddPermission} className="flex flex-col md:flex-row gap-4 mb-10 bg-slate-50 p-6 rounded-2xl border border-slate-100">
-             <div className="flex-1"><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">البريد الإلكتروني</label><input type="email" required placeholder="emp@domain.com" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 ring-blue-500 text-sm text-left font-mono font-bold" dir="ltr" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} /></div>
-             <div className="md:w-64"><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">الرتبة (Role)</label><select className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 ring-blue-500 text-sm font-bold" value={newUserRole} onChange={e => setNewUserRole(e.target.value)}><option value="super_admin">Super Admin (كامل)</option><option value="admin">Admin (بدون النظام والقرارات)</option><option value="editor">Editor (إدخال فقط)</option><option value="viewer">Viewer (لوحة فقط)</option></select></div>
-             <div className="flex items-end"><button type="submit" disabled={isSyncing} className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-black text-sm transition-colors shadow-md">منح الصلاحية</button></div>
-           </form>
-
-           <div className="overflow-x-auto">
-             <table className="w-full text-right text-sm">
-               <thead className="bg-slate-100 text-slate-500 text-xs uppercase tracking-widest">
-                 <tr><th className="p-4 border-b rounded-tr-xl">المستخدم</th><th className="p-4 border-b">الرتبة</th><th className="p-4 border-b text-center rounded-tl-xl">إجراء</th></tr>
-               </thead>
-               <tbody className="divide-y divide-slate-50">
-                 {Object.entries(permissions).map(([email, role]) => (
-                   <tr key={email} className="hover:bg-slate-50 transition-colors">
-                     <td className="p-4 font-mono font-bold text-slate-700 text-xs" dir="ltr">{email} {email === user.email && <span className="text-[10px] text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-lg ml-2 border border-emerald-100">أنت</span>}</td>
-                     <td className="p-4"><span className={`px-3 py-1.5 rounded-lg text-[10px] font-black ${role==='super_admin'?'bg-purple-100 text-purple-700':role==='admin'?'bg-blue-100 text-blue-700':role==='editor'?'bg-emerald-100 text-emerald-700':'bg-slate-200 text-slate-700'}`}>{role}</span></td>
-                     <td className="p-4 text-center"><button onClick={() => handleRemovePermission(email)} className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={18} /></button></td>
-                   </tr>
-                 ))}
-               </tbody>
-             </table>
-           </div>
-        </div>
-      </div>
-    );
-  };
-
-  // --- 6. AUTH GUARDS & RENDER ---
-
-  if (authError) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans" dir="rtl">
-        <div className="bg-white p-8 rounded-3xl shadow-xl max-w-sm w-full text-center border border-slate-100">
-           <AlertTriangle size={48} className="text-rose-500 mx-auto mb-4" />
-           <h2 className="font-black text-xl text-slate-800 mb-2">تنبيه أمان</h2>
-           <p className="text-slate-500 text-sm">{authError}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (isLoading || (user && (!isSettingsLoaded || !isPermissionsLoaded))) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center font-sans text-indigo-600 gap-4" dir="rtl">
-        <Loader2 className="animate-spin" size={40} /><p className="font-bold text-sm">تهيئة برج المراقبة...</p>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans" dir="rtl">
-        <div className="bg-white p-8 md:p-10 rounded-[2rem] shadow-xl w-full max-w-md border border-slate-100">
-          <div className="w-16 h-16 bg-indigo-600 rounded-2xl mx-auto mb-6 flex items-center justify-center shadow-lg shadow-indigo-200">
-            <Activity size={32} className="text-white"/>
-          </div>
-          <h2 className="text-2xl font-black text-center text-slate-800 mb-1">Asparkle OS</h2>
-          <p className="text-center text-slate-500 mb-8 text-xs font-bold uppercase tracking-widest">Business Control Tower</p>
-          <form onSubmit={handleLogin} className="space-y-4">
-            {loginError && <div className="bg-rose-50 text-rose-600 p-3 rounded-xl text-xs font-bold text-center border border-rose-100">{loginError}</div>}
-            <input type="email" required placeholder="البريد الإلكتروني" className="w-full p-3.5 bg-slate-50 rounded-xl outline-none focus:ring-2 ring-indigo-500 text-sm font-mono text-left" dir="ltr" value={email} onChange={e=>setEmail(e.target.value)} />
-            <input type="password" required placeholder="كلمة المرور" className="w-full p-3.5 bg-slate-50 rounded-xl outline-none focus:ring-2 ring-indigo-500 text-sm font-mono text-left" dir="ltr" value={password} onChange={e=>setPassword(e.target.value)} />
-            <button type="submit" disabled={isLoggingIn} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold p-3.5 rounded-xl transition-all shadow-md shadow-indigo-200 mt-2">تسجيل الدخول</button>
-          </form>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800" dir="rtl">

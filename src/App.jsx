@@ -846,18 +846,13 @@ export default function App() {
       return orders.filter(o => (o.reference||'').includes(searchTerm) || (o.customerName||'').includes(searchTerm) || (o.mobile||'').includes(searchTerm));
     }, [orders, searchTerm]);
 
-    const filteredCRM = useMemo(() => {
-      if(!searchTerm) return customers;
-      return customers.filter(c => c.name.includes(searchTerm) || c.mobile.includes(searchTerm));
-    }, [customers, searchTerm]);
-
     return (
       <div className="space-y-6 animate-in fade-in">
         <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
           <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-slate-50/50">
             <div>
-              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">{mode === 'orders' ? <ShoppingBag className="text-indigo-500" size={28}/> : <UsersRound className="text-indigo-500" size={28}/>} {mode === 'orders' ? 'الطلبات' : 'العملاء (CRM)'}</h2>
-              <p className="text-sm text-slate-500 mt-2">{mode === 'orders' ? 'سجل كافة الطلبات الواردة من المتجر.' : 'قاعدة بيانات العملاء وتصنيفهم الذكي.'}</p>
+              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3"><ShoppingBag className="text-indigo-500" size={28}/> سجل الطلبات الواردة</h2>
+              <p className="text-sm text-slate-500 mt-2">يعرض جميع الطلبات التي تم استيرادها.</p>
             </div>
             <div className="w-full md:w-80 relative">
               <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -868,15 +863,10 @@ export default function App() {
           <div className="overflow-x-auto">
             <table className="w-full text-right text-sm">
               <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-widest font-bold">
-                {mode === 'orders' ? (
-                  <tr><th className="p-6 border-b">رقم الطلب</th><th className="p-6 border-b">التاريخ</th><th className="p-6 border-b">العميل</th><th className="p-6 border-b">الجوال</th><th className="p-6 border-b">القناة</th><th className="p-6 border-b">المبلغ</th><th className="p-6 border-b">الحالة</th></tr>
-                ) : (
-                  <tr><th className="p-6 border-b">اسم العميل</th><th className="p-6 border-b">الجوال</th><th className="p-6 border-b text-center">عدد الطلبات</th><th className="p-6 border-b">إجمالي الإنفاق</th><th className="p-6 border-b">آخر طلب</th><th className="p-6 border-b">التصنيف</th></tr>
-                )}
+                <tr><th className="p-6 border-b">رقم الطلب</th><th className="p-6 border-b">التاريخ</th><th className="p-6 border-b">العميل</th><th className="p-6 border-b">الجوال</th><th className="p-6 border-b">القناة</th><th className="p-6 border-b">المبلغ</th><th className="p-6 border-b">الحالة</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {mode === 'orders' ? (
-                  filteredOrders.length === 0 ? <tr><td colSpan="7" className="p-12 text-center text-slate-400 font-bold">لا توجد طلبات مطابقة.</td></tr> :
+                {filteredOrders.length === 0 ? <tr><td colSpan="7" className="p-12 text-center text-slate-400 font-bold">لا توجد طلبات مطابقة.</td></tr> :
                   filteredOrders.slice(0, 100).map((o, i) => (
                     <tr key={i} className="hover:bg-indigo-50/30 transition-colors">
                       <td className="p-6 font-mono text-slate-500 text-xs">{o.reference}</td>
@@ -888,26 +878,384 @@ export default function App() {
                       <td className="p-6"><span className={`px-3 py-1.5 rounded-lg text-[10px] font-bold ${o.status === 'مكتمل' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{o.status}</span></td>
                     </tr>
                   ))
-                ) : (
-                  filteredCRM.length === 0 ? <tr><td colSpan="6" className="p-12 text-center text-slate-400 font-bold">لا يوجد عملاء.</td></tr> :
-                  filteredCRM.slice(0, 100).map((c, i) => (
-                    <tr key={i} className="hover:bg-indigo-50/30 transition-colors">
-                      <td className="p-6 font-black text-slate-800">{c.name}</td>
-                      <td className="p-6 text-slate-500 font-mono text-xs" dir="ltr">{c.mobile}</td>
-                      <td className="p-6 font-black text-center text-indigo-600 text-lg">{c.orderCount}</td>
-                      <td className="p-6 font-black text-emerald-600">{c.totalSpend.toLocaleString()} ﷼</td>
-                      <td className="p-6 text-xs text-slate-500 font-bold">{c.lastOrder} <span className="block text-[10px] text-slate-400 mt-1">منذ {c.daysSince} يوم</span></td>
-                      <td className="p-6">
-                        <span className={`px-3 py-1.5 rounded-lg text-xs font-black ${c.segment.includes('VIP') ? 'bg-amber-100 text-amber-700' : c.segment.includes('معرض') ? 'bg-orange-100 text-orange-700' : c.segment.includes('منقطع') ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                          {c.segment}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
+                }
               </tbody>
             </table>
-            {(mode==='orders' ? filteredOrders.length : filteredCRM.length) > 100 && <div className="p-6 text-center text-xs font-bold text-slate-400 border-t border-slate-100">يتم عرض أحدث 100 سجل فقط.</div>}
+            {filteredOrders.length > 100 && <div className="p-6 text-center text-xs font-bold text-slate-400 border-t border-slate-100">يتم عرض أحدث 100 سجل فقط.</div>}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const CRMTab = () => {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [segmentFilter, setSegmentFilter] = useState('all');
+    const [channelFilter, setChannelFilter] = useState('all');
+    const [sortBy, setSortBy] = useState('totalSpend');
+    const [crmPage, setCrmPage] = useState(1);
+    const crmPageSize = 50;
+
+    const enhancedCustomers = useMemo(() => {
+      const cusMap = {};
+
+      orders.forEach((o) => {
+        if (!o.mobile) return;
+
+        if (!cusMap[o.mobile]) {
+          cusMap[o.mobile] = {
+            name: o.customerName || 'عميل',
+            mobile: o.mobile,
+            orderCount: 0,
+            totalSpend: 0,
+            firstOrder: o.date || '',
+            lastOrder: o.date || '',
+            city: o.city || '',
+            channels: {},
+          };
+        }
+
+        const c = cusMap[o.mobile];
+        c.orderCount += 1;
+        c.totalSpend += parseFloat(o.amount) || 0;
+
+        if (o.date && (!c.firstOrder || o.date < c.firstOrder)) c.firstOrder = o.date;
+        if (o.date && (!c.lastOrder || o.date > c.lastOrder)) c.lastOrder = o.date;
+
+        if (o.channel) {
+          c.channels[o.channel] = (c.channels[o.channel] || 0) + 1;
+        }
+      });
+
+      return Object.values(cusMap).map((c) => {
+        const daysSince = c.lastOrder
+          ? Math.floor((new Date() - new Date(c.lastOrder)) / (1000 * 60 * 60 * 24))
+          : 999;
+
+        const favoriteChannel =
+          Object.entries(c.channels || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || 'غير محدد';
+
+        let segment = 'نشط';
+        if (c.totalSpend >= 1000 || c.orderCount >= 3) segment = 'VIP 🌟';
+        else if (daysSince > 60) segment = 'منقطع ⚠️';
+        else if (daysSince > 30) segment = 'معرض للانقطاع 🟠';
+
+        return {
+          ...c,
+          daysSince,
+          favoriteChannel,
+          averageOrderValue: c.orderCount > 0 ? c.totalSpend / c.orderCount : 0,
+          segment,
+        };
+      });
+    }, [orders]);
+
+    const crmSummary = useMemo(() => {
+      const totalCustomers = enhancedCustomers.length;
+      const vip = enhancedCustomers.filter(c => c.segment.includes('VIP')).length;
+      const active = enhancedCustomers.filter(c => c.segment === 'نشط').length;
+      const atRisk = enhancedCustomers.filter(c => c.segment.includes('معرض')).length;
+      const churned = enhancedCustomers.filter(c => c.segment.includes('منقطع')).length;
+      const totalRevenue = enhancedCustomers.reduce((sum, c) => sum + c.totalSpend, 0);
+
+      return { totalCustomers, vip, active, atRisk, churned, totalRevenue };
+    }, [enhancedCustomers]);
+
+    const crmChannels = useMemo(() => {
+      const set = new Set(
+        enhancedCustomers
+          .map(c => c.favoriteChannel)
+          .filter(Boolean)
+      );
+      return Array.from(set);
+    }, [enhancedCustomers]);
+
+    const filteredCRM = useMemo(() => {
+      let data = [...enhancedCustomers];
+
+      if (searchTerm.trim()) {
+        const q = searchTerm.trim();
+        data = data.filter(c =>
+          (c.name || '').includes(q) ||
+          (c.mobile || '').includes(q) ||
+          (c.city || '').includes(q)
+        );
+      }
+
+      if (segmentFilter !== 'all') {
+        data = data.filter(c => c.segment === segmentFilter);
+      }
+
+      if (channelFilter !== 'all') {
+        data = data.filter(c => c.favoriteChannel === channelFilter);
+      }
+
+      data.sort((a, b) => {
+        if (sortBy === 'totalSpend') return b.totalSpend - a.totalSpend;
+        if (sortBy === 'orderCount') return b.orderCount - a.orderCount;
+        if (sortBy === 'lastOrder') return (b.lastOrder || '').localeCompare(a.lastOrder || '');
+        if (sortBy === 'averageOrderValue') return b.averageOrderValue - a.averageOrderValue;
+        return 0;
+      });
+
+      return data;
+    }, [enhancedCustomers, searchTerm, segmentFilter, channelFilter, sortBy]);
+
+    const crmTotalPages = Math.max(1, Math.ceil(filteredCRM.length / crmPageSize));
+
+    const paginatedCRM = useMemo(() => {
+      const start = (crmPage - 1) * crmPageSize;
+      return filteredCRM.slice(start, start + crmPageSize);
+    }, [filteredCRM, crmPage]);
+
+    useEffect(() => {
+      setCrmPage(1);
+    }, [searchTerm, segmentFilter, channelFilter, sortBy]);
+
+    const topSpenders = useMemo(() => filteredCRM.slice(0, 5), [filteredCRM]);
+
+    const exportCRMToExcel = async () => {
+      try {
+        const XLSX = await loadXLSX();
+
+        const rows = filteredCRM.map(c => ({
+          'اسم العميل': c.name,
+          'الجوال': c.mobile,
+          'المدينة': c.city || '',
+          'عدد الطلبات': c.orderCount,
+          'إجمالي الإنفاق': c.totalSpend,
+          'متوسط السلة': c.averageOrderValue.toFixed(2),
+          'أول طلب': c.firstOrder || '',
+          'آخر طلب': c.lastOrder || '',
+          'منذ آخر طلب (يوم)': c.daysSince,
+          'التصنيف': c.segment,
+          'القناة المفضلة': c.favoriteChannel || '',
+        }));
+
+        const worksheet = XLSX.utils.json_to_sheet(rows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'CRM');
+        XLSX.writeFile(workbook, `CRM_Report_${endDate}.xlsx`);
+      } catch (e) {
+        console.error(e);
+        alert('تعذر تصدير التقرير');
+      }
+    };
+
+    return (
+      <div className="space-y-8 animate-in fade-in">
+        <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 p-8">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-8">
+            <div>
+              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">
+                <UsersRound className="text-indigo-500" size={28} />
+                العملاء (CRM)
+              </h2>
+              <p className="text-sm text-slate-500 mt-2">
+                لوحة CRM احترافية لإدارة العملاء، الشرائح، والتقارير.
+              </p>
+            </div>
+
+            <button
+              onClick={exportCRMToExcel}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-5 py-3 rounded-xl flex items-center gap-2 shadow-sm"
+            >
+              <Download size={18} />
+              تصدير تقرير CRM
+            </button>
+          </div>
+
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4 mb-8">
+            {[
+              { label: 'إجمالي العملاء', value: crmSummary.totalCustomers, color: 'text-slate-800' },
+              { label: 'VIP', value: crmSummary.vip, color: 'text-amber-600' },
+              { label: 'نشط', value: crmSummary.active, color: 'text-emerald-600' },
+              { label: 'معرض للانقطاع', value: crmSummary.atRisk, color: 'text-orange-600' },
+              { label: 'منقطع', value: crmSummary.churned, color: 'text-rose-600' },
+              { label: 'إجمالي الإنفاق', value: `${crmSummary.totalRevenue.toLocaleString()} ﷼`, color: 'text-indigo-600' },
+            ].map((card, i) => (
+              <div key={i} className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
+                <p className="text-xs font-black text-slate-400 mb-2">{card.label}</p>
+                <h3 className={`text-2xl font-black ${card.color}`}>{card.value}</h3>
+              </div>
+            ))}
+          </div>
+
+          {/* Filters */}
+          <div className="bg-slate-50 rounded-3xl p-6 border border-slate-100 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              <div className="relative">
+                <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input
+                  type="text"
+                  placeholder="ابحث بالاسم أو الجوال أو المدينة..."
+                  className="w-full pl-4 pr-12 py-3 rounded-2xl border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none bg-white shadow-sm"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+
+              <select
+                className="w-full py-3 px-4 rounded-2xl border border-slate-200 text-sm font-bold outline-none bg-white shadow-sm"
+                value={segmentFilter}
+                onChange={(e) => setSegmentFilter(e.target.value)}
+              >
+                <option value="all">كل التصنيفات</option>
+                <option value="نشط">نشط</option>
+                <option value="VIP 🌟">VIP 🌟</option>
+                <option value="معرض للانقطاع 🟠">معرض للانقطاع 🟠</option>
+                <option value="منقطع ⚠️">منقطع ⚠️</option>
+              </select>
+
+              <select
+                className="w-full py-3 px-4 rounded-2xl border border-slate-200 text-sm font-bold outline-none bg-white shadow-sm"
+                value={channelFilter}
+                onChange={(e) => setChannelFilter(e.target.value)}
+              >
+                <option value="all">كل القنوات</option>
+                {crmChannels.map((ch) => (
+                  <option key={ch} value={ch}>{ch}</option>
+                ))}
+              </select>
+
+              <select
+                className="w-full py-3 px-4 rounded-2xl border border-slate-200 text-sm font-bold outline-none bg-white shadow-sm"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+              >
+                <option value="totalSpend">ترتيب حسب الإنفاق</option>
+                <option value="orderCount">ترتيب حسب عدد الطلبات</option>
+                <option value="lastOrder">ترتيب حسب آخر طلب</option>
+                <option value="averageOrderValue">ترتيب حسب متوسط السلة</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 2xl:grid-cols-4 gap-8">
+            {/* Main Table */}
+            <div className="2xl:col-span-3">
+              <div className="overflow-x-auto rounded-3xl border border-slate-100">
+                <table className="w-full text-right text-sm bg-white">
+                  <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-widest font-bold">
+                    <tr>
+                      <th className="p-5 border-b">اسم العميل</th>
+                      <th className="p-5 border-b">الجوال</th>
+                      <th className="p-5 border-b">عدد الطلبات</th>
+                      <th className="p-5 border-b">إجمالي الإنفاق</th>
+                      <th className="p-5 border-b">متوسط السلة</th>
+                      <th className="p-5 border-b">آخر طلب</th>
+                      <th className="p-5 border-b">القناة المفضلة</th>
+                      <th className="p-5 border-b">التصنيف</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {paginatedCRM.length === 0 ? (
+                      <tr>
+                        <td colSpan="8" className="p-12 text-center text-slate-400 font-bold">
+                          لا توجد نتائج مطابقة
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedCRM.map((c, i) => (
+                        <tr key={`${c.mobile}-${i}`} className="hover:bg-indigo-50/30 transition-colors">
+                          <td className="p-5 font-black text-slate-800">{c.name}</td>
+                          <td className="p-5 text-slate-500 font-mono text-xs" dir="ltr">{c.mobile}</td>
+                          <td className="p-5 font-black text-center text-indigo-600">{c.orderCount}</td>
+                          <td className="p-5 font-black text-emerald-600">{c.totalSpend.toLocaleString()} ﷼</td>
+                          <td className="p-5 font-black text-slate-700">{c.averageOrderValue.toFixed(2)} ﷼</td>
+                          <td className="p-5 text-xs text-slate-500 font-bold">
+                            {c.lastOrder}
+                            <span className="block text-[10px] text-slate-400 mt-1">
+                              منذ {c.daysSince} يوم
+                            </span>
+                          </td>
+                          <td className="p-5">
+                            <span className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg text-[10px] font-bold">
+                              {c.favoriteChannel}
+                            </span>
+                          </td>
+                          <td className="p-5">
+                            <span className={`px-3 py-1.5 rounded-lg text-xs font-black ${
+                              c.segment.includes('VIP')
+                                ? 'bg-amber-100 text-amber-700'
+                                : c.segment.includes('معرض')
+                                ? 'bg-orange-100 text-orange-700'
+                                : c.segment.includes('منقطع')
+                                ? 'bg-rose-100 text-rose-700'
+                                : 'bg-emerald-100 text-emerald-700'
+                            }`}>
+                              {c.segment}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              <div className="flex items-center justify-between mt-6">
+                <button
+                  onClick={() => setCrmPage(p => Math.max(1, p - 1))}
+                  disabled={crmPage === 1}
+                  className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold disabled:opacity-50"
+                >
+                  السابق
+                </button>
+
+                <span className="text-sm font-bold text-slate-500">
+                  صفحة {crmPage} من {crmTotalPages}
+                </span>
+
+                <button
+                  onClick={() => setCrmPage(p => Math.min(crmTotalPages, p + 1))}
+                  disabled={crmPage === crmTotalPages}
+                  className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold disabled:opacity-50"
+                >
+                  التالي
+                </button>
+              </div>
+            </div>
+
+            {/* Side Insights */}
+            <div className="space-y-6">
+              <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm">
+                <h3 className="font-black text-slate-800 mb-4">أعلى العملاء إنفاقًا</h3>
+                <div className="space-y-3">
+                  {topSpenders.length === 0 ? (
+                    <div className="text-slate-400 font-bold text-sm">لا توجد بيانات</div>
+                  ) : (
+                    topSpenders.map((c, i) => (
+                      <div key={i} className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                        <p className="font-black text-slate-800 text-sm">{c.name}</p>
+                        <p className="text-xs text-slate-500 mt-1" dir="ltr">{c.mobile}</p>
+                        <p className="text-sm font-black text-emerald-600 mt-2">{c.totalSpend.toLocaleString()} ﷼</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm">
+                <h3 className="font-black text-slate-800 mb-4">ملخص سريع</h3>
+                <div className="space-y-3 text-sm font-bold text-slate-600">
+                  <div className="flex justify-between">
+                    <span>النتائج الحالية</span>
+                    <span className="text-slate-800">{filteredCRM.length}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>عدد الصفحات</span>
+                    <span className="text-slate-800">{crmTotalPages}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>حجم الصفحة</span>
+                    <span className="text-slate-800">{crmPageSize}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1137,7 +1485,7 @@ export default function App() {
         {activeTab === 'dashboard' && <DashboardTab />}
         {activeTab === 'movements' && hasAccess(['super_admin', 'admin', 'editor']) && <><UploadTab/><ManualMovementForm/></>}
         {activeTab === 'orders' && hasAccess(['super_admin', 'admin', 'editor']) && <OrdersAndCRMTab mode="orders"/>}
-        {activeTab === 'crm' && hasAccess(['super_admin', 'admin']) && <OrdersAndCRMTab mode="crm"/>}
+        {activeTab === 'crm' && hasAccess(['super_admin', 'admin']) && <CRMTab />}
         {activeTab === 'adcosts' && hasAccess(['super_admin', 'admin']) && <AdCostsTab />}
         {activeTab === 'decision_center' && hasAccess(['super_admin']) && <DecisionCenterTab />}
         {activeTab === 'profit_simulator' && hasAccess(['super_admin']) && <ProfitSimulatorTab />}

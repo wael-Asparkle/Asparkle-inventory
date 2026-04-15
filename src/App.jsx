@@ -10,7 +10,50 @@ import {
 
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch } from 'firebase/firestore';
+import { 
+  getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch,
+  query, orderBy, limit, getDocs 
+} from 'firebase/firestore';
+
+// --- Error Boundary ---
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('Application crash:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6" dir="rtl">
+          <div className="bg-white rounded-3xl shadow-xl border border-slate-100 p-8 max-w-lg w-full text-center">
+            <div className="mx-auto bg-rose-100 text-rose-600 w-16 h-16 flex items-center justify-center rounded-2xl mb-4"><ShieldAlert size={32}/></div>
+            <h2 className="text-2xl font-black text-rose-600 mb-3">حدث خطأ في النظام</h2>
+            <p className="text-slate-600 mb-4 text-sm font-bold">تم التقاط الخطأ وحماية النظام من الانهيار.</p>
+            <pre className="text-xs bg-slate-50 border border-slate-200 rounded-xl p-4 overflow-auto text-left text-slate-500 font-mono mb-6" dir="ltr">
+              {this.state.error?.message || 'Unknown error'}
+            </pre>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-4 rounded-xl font-black transition-colors"
+            >
+              إعادة تحميل الصفحة
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // مكتبة الإكسل
 const loadXLSX = async () => {
@@ -99,7 +142,7 @@ const SimpleLineChart = ({ data, dataKey, height = 200 }) => {
   );
 };
 
-export default function App() {
+function App() {
   // --- 1. STATES ---
   const [activeTab, setActiveTab] = useState('dashboard');
   
@@ -113,6 +156,7 @@ export default function App() {
 
   const [user, setUser] = useState(null);
   
+  // Data States
   const [movements, setMovements] = useState([]);
   const [adCosts, setAdCosts] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -195,19 +239,27 @@ export default function App() {
     });
   }, [user]);
 
+  // Fetch All Core Data with Limits for performance
   useEffect(() => {
     if (!user) return;
-    const loadCollection = (colName, setter) => {
-      return onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', colName), (snap) => {
+    const loadCollection = (colName, setter, max = 2000) => {
+      const q = query(
+        collection(db, 'artifacts', appId, 'public', 'data', colName),
+        orderBy('timestamp', 'desc'),
+        limit(max)
+      );
+      return onSnapshot(q, (snap) => {
         const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        data.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        // sorting desc already handled by query, but we can ensure date sorting if needed
         setter(data);
+      }, (error) => {
+        console.error(`Error loading ${colName}:`, error);
       });
     };
 
-    const unsubMov = loadCollection('movements', setMovements);
-    const unsubAd = loadCollection('adcosts', setAdCosts);
-    const unsubOrd = loadCollection('orders', setOrders);
+    const unsubMov = loadCollection('movements', setMovements, 2000);
+    const unsubAd = loadCollection('adcosts', setAdCosts, 1000);
+    const unsubOrd = loadCollection('orders', setOrders, 2000);
 
     const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'definitions');
     const unsubSet = onSnapshot(settingsRef, (docSnap) => {
@@ -290,7 +342,7 @@ export default function App() {
     }
   };
 
-  // --- 4. DATA MEMOS (Pre-processing) ---
+  // --- 4. DATA MEMOS (Pre-processing & Protection) ---
   const parsedMovements = useMemo(() => {
     return movements.map(m => ({
       ...m,
@@ -302,6 +354,7 @@ export default function App() {
 
   const movementsInPeriod = useMemo(() => parsedMovements.filter(m => m.date >= startDate && m.date <= endDate), [parsedMovements, startDate, endDate]);
   const adCostsInPeriod = useMemo(() => adCosts.filter(c => c.date >= startDate && c.date <= endDate), [adCosts, startDate, endDate]);
+  const ordersInPeriod = useMemo(() => orders.filter(o => o.date >= startDate && o.date <= endDate), [orders, startDate, endDate]);
   
   const stockAsOfDate = useMemo(() => {
     let stock = {};
@@ -314,13 +367,18 @@ export default function App() {
       if (mov.date > endDate) return;
       const isOut = MOVEMENT_TYPES.find(t => t.id === mov.type)?.type === 'out';
       const multiplier = isOut ? -1 : 1;
+      
       if (mov.level === 'منتج') {
         const p = productDetails[mov.code];
-        if (p && mov.date >= p.openingDate) stock[mov.code] += (mov.qty * multiplier);
-      } else if (mov.level === 'بكج' && packages[mov.code]) {
-        Object.entries(packages[mov.code].items).forEach(([sku, reqQty]) => {
+        if (!p) return; 
+        if (mov.date >= p.openingDate) stock[mov.code] += (mov.qty * multiplier);
+      } else if (mov.level === 'بكج') {
+        const pkg = packages[mov.code];
+        if (!pkg?.items) return;
+        Object.entries(pkg.items).forEach(([sku, reqQty]) => {
           const p = productDetails[sku];
-          if (p && mov.date >= p.openingDate) stock[sku] += (mov.qty * reqQty * multiplier);
+          if (!p) return;
+          if (mov.date >= p.openingDate) stock[sku] += (mov.qty * reqQty * multiplier);
         });
       }
     });
@@ -333,15 +391,17 @@ export default function App() {
       let maxPossible = Infinity;
       let limitingSku = null;
 
-      Object.entries(pkg.items).forEach(([sku, reqQty]) => {
-        const availableSkus = stockAsOfDate[sku] || 0;
-        const possibleFromThisSku = Math.floor(availableSkus / reqQty);
-        
-        if (possibleFromThisSku < maxPossible) {
-          maxPossible = possibleFromThisSku;
-          limitingSku = sku;
-        }
-      });
+      if(pkg.items) {
+        Object.entries(pkg.items).forEach(([sku, reqQty]) => {
+          const availableSkus = stockAsOfDate[sku] || 0;
+          const possibleFromThisSku = Math.floor(availableSkus / reqQty);
+          
+          if (possibleFromThisSku < maxPossible) {
+            maxPossible = possibleFromThisSku;
+            limitingSku = sku;
+          }
+        });
+      }
       availability[pkgCode] = {
         max: maxPossible === Infinity ? 0 : Math.max(0, maxPossible),
         criticalSku: limitingSku
@@ -357,16 +417,23 @@ export default function App() {
       let channel = 'المنتجات الفردية';
       let revenue = 0, cost = 0;
 
-      if (m.level === 'بكج' && packages[m.code]) {
+      if (m.level === 'بكج') {
         const pkg = packages[m.code];
+        if (!pkg) return;
         channel = pkg.channel || 'غير محدد';
         revenue = (pkg.price || 0) * m.qty;
         let pkgCogs = 0;
-        Object.entries(pkg.items).forEach(([sku, reqQty]) => { pkgCogs += (productDetails[sku]?.unitCost || 0) * reqQty; });
+        if(pkg.items) {
+          Object.entries(pkg.items).forEach(([sku, reqQty]) => { 
+            pkgCogs += (productDetails[sku]?.unitCost || 0) * reqQty; 
+          });
+        }
         cost = pkgCogs * m.qty;
-      } else if (m.level === 'منتج' && productDetails[m.code]) {
-        revenue = (productDetails[m.code].sellingPrice || 0) * m.qty;
-        cost = (productDetails[m.code].unitCost || 0) * m.qty;
+      } else if (m.level === 'منتج') {
+        const p = productDetails[m.code];
+        if (!p) return;
+        revenue = (p.sellingPrice || 0) * m.qty;
+        cost = (p.unitCost || 0) * m.qty;
       }
 
       if (!result[channel]) result[channel] = { revenue: 0, cogs: 0, adCost: 0, netSales: 0, returns: 0 };
@@ -406,8 +473,9 @@ export default function App() {
     movementsInPeriod.forEach(m => {
       if (!m.isSale && !m.isReturn) return;
       const multiplier = m.isSale ? 1 : -1;
-      if (m.level === 'منتج' && productDetails[m.code]) {
+      if (m.level === 'منتج') {
         const p = productDetails[m.code];
+        if (!p || !result[m.code]) return;
         result[m.code].sales += m.qty * multiplier;
         result[m.code].revenue += (p.sellingPrice || 0) * m.qty * multiplier;
         result[m.code].cost += (p.unitCost || 0) * m.qty * multiplier;
@@ -424,9 +492,14 @@ export default function App() {
       if (!cusMap[o.mobile]) {
         cusMap[o.mobile] = { name: o.customerName || 'عميل', mobile: o.mobile, orderCount: 0, totalSpend: 0, lastOrder: '', city: o.city || '' };
       }
-      cusMap[o.mobile].orderCount += 1;
-      cusMap[o.mobile].totalSpend += parseFloat(o.amount) || 0;
-      if (o.date > cusMap[o.mobile].lastOrder) cusMap[o.mobile].lastOrder = o.date;
+      const c = cusMap[o.mobile];
+      c.orderCount += 1;
+      c.totalSpend += parseFloat(o.amount) || 0;
+      if (o.date && (!c.lastOrder || o.date > c.lastOrder)) c.lastOrder = o.date;
+      if (o.date && (!c.firstOrder || o.date < c.firstOrder)) c.firstOrder = o.date;
+      
+      if (!c.channels) c.channels = {};
+      if (o.channel) c.channels[o.channel] = (c.channels[o.channel] || 0) + 1;
     });
     
     return Object.values(cusMap).map(c => {
@@ -435,7 +508,11 @@ export default function App() {
       if (c.totalSpend >= 1000 || c.orderCount >= 3) segment = 'VIP 🌟';
       else if (daysSince > 60) segment = 'منقطع ⚠️';
       else if (daysSince > 30) segment = 'معرض للانقطاع 🟠';
-      return { ...c, daysSince, segment };
+      
+      const favoriteChannel = Object.entries(c.channels || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || 'غير محدد';
+      const averageOrderValue = c.orderCount > 0 ? c.totalSpend / c.orderCount : 0;
+      
+      return { ...c, daysSince, segment, favoriteChannel, averageOrderValue };
     }).sort((a, b) => b.totalSpend - a.totalSpend);
   }, [orders]);
 
@@ -571,7 +648,7 @@ export default function App() {
 
           <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 flex flex-col">
              <h3 className="font-black text-slate-800 mb-6 flex items-center gap-2"><Package className="text-emerald-500"/> تحليل المنتجات</h3>
-             <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar pr-2">
+             <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar pr-2 max-h-[250px]">
                {productStats.slice(0, 5).map((p, i) => (
                  <div key={i} className="flex flex-col gap-1.5">
                    <div className="flex justify-between text-sm font-bold text-slate-700">
@@ -635,6 +712,45 @@ export default function App() {
       try {
         const XLSX = await loadXLSX();
         const reader = new FileReader();
+        
+        // خوارزمية متقدمة لقراءة التاريخ بجميع أشكاله
+        const normalizeDate = (value) => {
+          if (!value) return todayStr;
+
+          if (typeof value === 'number' && window.XLSX) {
+            try {
+              const date = window.XLSX.SSF.parse_date_code(value);
+              if (date) {
+                const mm = String(date.m).padStart(2, '0');
+                const dd = String(date.d).padStart(2, '0');
+                return `${date.y}-${mm}-${dd}`;
+              }
+            } catch (e) {
+              console.error(e);
+            }
+          }
+
+          const strVal = String(value).trim();
+
+          const isoMatch = strVal.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          if (isoMatch) return strVal;
+
+          const slashMatch = strVal.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+          if (slashMatch) {
+            const dd = String(slashMatch[1]).padStart(2, '0');
+            const mm = String(slashMatch[2]).padStart(2, '0');
+            const yyyy = slashMatch[3];
+            return `${yyyy}-${mm}-${dd}`;
+          }
+
+          const parsed = new Date(strVal);
+          if (!isNaN(parsed.getTime())) {
+            return parsed.toISOString().split('T')[0];
+          }
+
+          return todayStr;
+        };
+
         reader.onload = async (event) => {
           const data = new Uint8Array(event.target.result);
           const workbook = XLSX.read(data, { type: 'array' });
@@ -642,6 +758,7 @@ export default function App() {
           if(rows.length < 2) return alert('ملف غير صالح');
 
           const headers = rows[0].map(h => String(h || ''));
+          const dateCol = headers.findIndex(h => h.includes('التاريخ') || h.includes('تاريخ الطلب') || h.includes('Date') || h.includes('date'));
           const orderIdCol = headers.findIndex(h => h.includes('رقم الطلب') || h.includes('رقم'));
           const productCol = headers.findIndex(h => h.includes('نوع الطلب') || h.includes('المنتجات') || h.includes('اسم المنتج'));
           const qtyCol = headers.findIndex(h => h.includes('الكمية') || h.includes('العدد') || h === 'Qty');
@@ -657,6 +774,8 @@ export default function App() {
             const row = rows[i]; if(!row || row.length === 0) continue;
             let orderId = row[orderIdCol] ? String(row[orderIdCol]).replace(/["']/g, '').replace(/^\uFEFF/, '') : '';
             if(!orderId) continue;
+
+            const orderDate = dateCol !== -1 ? normalizeDate(row[dateCol]) : todayStr;
 
             let productStr = productCol !== -1 ? String(row[productCol] || '') : '';
             let paymentStr = paymentCol !== -1 ? String(row[paymentCol] || '') : '';
@@ -682,8 +801,12 @@ export default function App() {
             if (!mappedCode) {
               Object.keys(productDetails).forEach(sku => { if(productStr.includes(sku)) { mappedCode = sku; mappedLevel = 'منتج'; } });
             }
-            if (!mappedCode) mappedCode = Object.keys(packages)[0] || Object.keys(productDetails)[0];
-            if (!mappedCode) continue;
+            if (!mappedCode) {
+              const firstPackageCode = Object.keys(packages)[0];
+              const firstProductCode = Object.keys(productDetails)[0];
+              mappedCode = firstPackageCode || firstProductCode;
+            }
+            if (!mappedCode) continue; // الحماية من الـ Bugs الصامتة
 
             let movType = 'بيع آلي (عبر الربط)'; 
             if (importMode === 'sales') {
@@ -694,8 +817,8 @@ export default function App() {
 
             const channelName = mappedLevel === 'بكج' ? (packages[mappedCode]?.channel || 'عضوي') : 'المنتجات الفردية';
             
-            parsedOrders.push({ date: todayStr, reference: orderId, customerName, mobile, amount, channel: channelName, status: importMode==='sales'?'مكتمل':'مرتجع' });
-            parsedMovementsLocal.push({ date: todayStr, level: mappedLevel, code: mappedCode, type: movType, quantity: qty, reference: orderId, note: importMode === 'sales' ? 'استيراد مبيعات' : 'استيراد رجيع' });
+            parsedOrders.push({ date: orderDate, reference: orderId, customerName, mobile, amount, channel: channelName, status: importMode==='sales'?'مكتمل':'مرتجع' });
+            parsedMovementsLocal.push({ date: orderDate, level: mappedLevel, code: mappedCode, type: movType, quantity: qty, reference: orderId, note: importMode === 'sales' ? 'استيراد مبيعات' : 'استيراد رجيع' });
           }
           setImportPreview({ orders: parsedOrders, movements: parsedMovementsLocal });
           if (fileInputRef.current) fileInputRef.current.value = '';
@@ -709,10 +832,10 @@ export default function App() {
       setIsSyncing(true);
       try {
         const batchSize = 50; 
-        const dbOrderRefs = new Set(orders.map(o => o.reference)); // الطلبات السابقة في النظام
+        const dbOrderRefs = new Set([ ...orders.map(o => o.reference) ]);
         
         const uniqueOrders = [];
-        const seenNewRefs = new Set(); // لمنع التكرار داخل نفس الملف المرفوع
+        const seenNewRefs = new Set(); 
 
         for (const o of importPreview.orders) {
           if (dbOrderRefs.has(o.reference) || seenNewRefs.has(o.reference)) continue;
@@ -722,16 +845,19 @@ export default function App() {
 
         const uniqueMovements = [];
         for (const m of importPreview.movements) {
-          // نتخطى الحركات الخاصة بالطلبات التي تم رفعها سابقاً لتفادي تكرار المبيعات
           if (dbOrderRefs.has(m.reference)) continue;
           uniqueMovements.push(m);
         }
 
+        const skippedOrders = importPreview.orders.length - uniqueOrders.length;
+        const skippedMovements = importPreview.movements.length - uniqueMovements.length;
+
+        const baseNow = Date.now();
         for (let i = 0; i < uniqueOrders.length; i += batchSize) {
           const chunk = uniqueOrders.slice(i, i + batchSize);
           const batch = writeBatch(db);
           chunk.forEach((ord, index) => {
-            const now = Date.now() + index; 
+            const now = baseNow + i + index; 
             const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', `ord_${now}_${Math.random().toString(36).slice(2, 6)}`);
             batch.set(docRef, { ...ord, timestamp: now });
           });
@@ -742,14 +868,14 @@ export default function App() {
           const chunk = uniqueMovements.slice(i, i + batchSize);
           const batch = writeBatch(db);
           chunk.forEach((mov, index) => {
-            const now = Date.now() + index; 
+            const now = baseNow + i + index; 
             const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'movements', `mov_${now}_${Math.random().toString(36).slice(2, 6)}`);
             batch.set(docRef, { ...mov, timestamp: now });
           });
           await batch.commit();
         }
         
-        alert(`تم رفع وتحديث ${uniqueMovements.length} حركة بنجاح!`); 
+        alert(`تم رفع ${uniqueOrders.length} طلب و ${uniqueMovements.length} حركة بنجاح.\nتم تجاهل ${skippedOrders} طلب مكرر و ${skippedMovements} حركة مرتبطة بطلبات مكررة.`); 
         setImportPreview(null);
       } catch (e) { console.error(e); alert('خطأ أثناء الرفع'); } finally { setIsSyncing(false); }
     };
@@ -764,7 +890,7 @@ export default function App() {
             <h4 className="font-black text-indigo-900 mb-6 flex items-center gap-2 text-lg"><CheckCircle2/> تأكيد استيراد البيانات</h4>
             <div className="flex flex-col md:flex-row gap-6 mb-8">
               <div className="bg-white p-6 rounded-2xl flex-1 text-center shadow-sm border border-indigo-100/50">
-                <span className="block text-4xl font-black text-indigo-600 mb-2">{importPreview.orders.length}</span><span className="text-sm font-bold text-slate-500">طلب في الملف (سيتم تجاهل المكرر)</span>
+                <span className="block text-4xl font-black text-indigo-600 mb-2">{importPreview.orders.length}</span><span className="text-sm font-bold text-slate-500">طلب في الملف</span>
               </div>
               <div className="bg-white p-6 rounded-2xl flex-1 text-center shadow-sm border border-indigo-100/50">
                 <span className="block text-4xl font-black text-emerald-600 mb-2">{importPreview.movements.length}</span><span className="text-sm font-bold text-slate-500">حركة مخزون محتملة</span>
@@ -800,88 +926,206 @@ export default function App() {
     );
   };
 
-  const ManualMovementForm = () => {
-    const defaultCode = Object.keys(productDetails)[0] || '';
-    const defaultPkgCode = Object.keys(packages)[0] || '';
-    const [formData, setFormData] = useState({ date: todayStr, level: 'منتج', code: defaultCode, type: MOVEMENT_TYPES[0].id, quantity: 1, reference: '', note: '' });
-    
-    useEffect(() => { 
-      setFormData(prev => ({ ...prev, code: prev.level === 'منتج' ? defaultCode : defaultPkgCode })); 
-    }, [productDetails, packages, formData.level]);
-
-    const handleSubmit = async (e) => {
-      e.preventDefault();
-      await addMovementToCloud(formData);
-      setFormData({ ...formData, quantity: 1, reference: '', note: '' });
-      alert('تم التسجيل بنجاح');
-    };
-
-    return (
-      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm animate-in fade-in mt-6">
-        <h3 className="text-xl font-bold mb-6 text-slate-800 border-b border-slate-100 pb-4">إدخال مخزون يدوي (طوارئ / جرد)</h3>
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div><label className="block text-xs font-bold mb-1 text-slate-600">التاريخ</label><input type="date" required className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} /></div>
-          <div><label className="block text-xs font-bold mb-1 text-slate-600">المستوى</label><select className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.level} onChange={e => setFormData({...formData, level: e.target.value})}><option value="منتج">منتج فردي</option><option value="بكج">بكج / عرض</option></select></div>
-          <div>
-            <label className="block text-xs font-bold mb-1 text-slate-600">الكود</label>
-            <select className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})} required>
-              {formData.level === 'منتج' ? Object.keys(productDetails).map(p => <option key={p} value={p}>{p} - {productDetails[p].name}</option>) : Object.keys(packages).map(p => <option key={p} value={p}>{p} - {packages[p].name}</option>)}
-            </select>
-          </div>
-          <div><label className="block text-xs font-bold mb-1 text-slate-600">النوع</label><select className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>{MOVEMENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.id}</option>)}</select></div>
-          <div><label className="block text-xs font-bold mb-1 text-slate-600">الكمية</label><input type="number" min="1" required className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.quantity} onChange={e => setFormData({...formData, quantity: e.target.value})} /></div>
-          <div><label className="block text-xs font-bold mb-1 text-slate-600">المرجع</label><input type="text" className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.reference} onChange={e => setFormData({...formData, reference: e.target.value})} /></div>
-          <div className="md:col-span-2"><label className="block text-xs font-bold mb-1 text-slate-600">ملاحظات</label><input type="text" className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})} /></div>
-          <div className="md:col-span-4 mt-2"><button type="submit" disabled={isSyncing} className="w-full bg-slate-800 text-white p-3.5 rounded-xl font-bold hover:bg-slate-900 transition-colors">تنفيذ الحركة</button></div>
-        </form>
-      </div>
-    );
-  };
-
-  const OrdersAndCRMTab = ({ mode = 'orders' }) => {
+  const OrdersTab = () => {
     const [searchTerm, setSearchTerm] = useState('');
-    
+    const [channelFilter, setChannelFilter] = useState('all');
+    const [statusFilter, setStatusFilter] = useState('all');
+    const [ordersPage, setOrdersPage] = useState(1);
+    const ordersPageSize = 50;
+  
+    const orderChannels = useMemo(() => {
+      return Array.from(new Set(orders.map(o => o.channel).filter(Boolean)));
+    }, [orders]);
+  
     const filteredOrders = useMemo(() => {
-      if(!searchTerm) return orders;
-      return orders.filter(o => (o.reference||'').includes(searchTerm) || (o.customerName||'').includes(searchTerm) || (o.mobile||'').includes(searchTerm));
-    }, [orders, searchTerm]);
-
+      let data = [...orders];
+  
+      if (searchTerm.trim()) {
+        const q = searchTerm.trim();
+        data = data.filter(o =>
+          (o.reference || '').includes(q) ||
+          (o.customerName || '').includes(q) ||
+          (o.mobile || '').includes(q)
+        );
+      }
+  
+      if (channelFilter !== 'all') {
+        data = data.filter(o => o.channel === channelFilter);
+      }
+  
+      if (statusFilter !== 'all') {
+        data = data.filter(o => o.status === statusFilter);
+      }
+  
+      data.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      return data;
+    }, [orders, searchTerm, channelFilter, statusFilter]);
+  
+    const ordersTotalPages = Math.max(1, Math.ceil(filteredOrders.length / ordersPageSize));
+  
+    const paginatedOrders = useMemo(() => {
+      const start = (ordersPage - 1) * ordersPageSize;
+      return filteredOrders.slice(start, start + ordersPageSize);
+    }, [filteredOrders, ordersPage]);
+  
+    useEffect(() => {
+      setOrdersPage(1);
+    }, [searchTerm, channelFilter, statusFilter]);
+  
+    const exportOrdersToExcel = async () => {
+      try {
+        const XLSX = await loadXLSX();
+  
+        const rows = filteredOrders.map(o => ({
+          'رقم الطلب': o.reference,
+          'التاريخ': o.date,
+          'اسم العميل': o.customerName,
+          'الجوال': o.mobile,
+          'القناة': o.channel,
+          'المبلغ': o.amount,
+          'الحالة': o.status,
+        }));
+  
+        const worksheet = XLSX.utils.json_to_sheet(rows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Orders');
+        XLSX.writeFile(workbook, `Orders_Report_${endDate}.xlsx`);
+      } catch (e) {
+        console.error(e);
+        alert('تعذر تصدير التقرير');
+      }
+    };
+  
     return (
-      <div className="space-y-6 animate-in fade-in">
-        <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
-          <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-slate-50/50">
+      <div className="space-y-8 animate-in fade-in">
+        <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 p-8">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-8">
             <div>
-              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3"><ShoppingBag className="text-indigo-500" size={28}/> سجل الطلبات الواردة</h2>
-              <p className="text-sm text-slate-500 mt-2">يعرض جميع الطلبات التي تم استيرادها.</p>
+              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">
+                <ShoppingBag className="text-indigo-500" size={28} />
+                الطلبات
+              </h2>
+              <p className="text-sm text-slate-500 mt-2">
+                عرض جميع الطلبات مع الفلترة والتصدير وتقسيم الصفحات.
+              </p>
             </div>
-            <div className="w-full md:w-80 relative">
-              <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input type="text" placeholder="بحث برقم، اسم، أو جوال..." className="w-full pl-4 pr-12 py-3 rounded-2xl border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none bg-white shadow-sm" value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} />
+  
+            <button
+              onClick={exportOrdersToExcel}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-5 py-3 rounded-xl flex items-center gap-2 shadow-sm"
+            >
+              <Download size={18} />
+              تصدير الطلبات
+            </button>
+          </div>
+  
+          <div className="bg-slate-50 rounded-3xl p-6 border border-slate-100 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="relative">
+                <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input
+                  type="text"
+                  placeholder="بحث برقم الطلب أو الاسم أو الجوال..."
+                  className="w-full pl-4 pr-12 py-3 rounded-2xl border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none bg-white shadow-sm"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+  
+              <select
+                className="w-full py-3 px-4 rounded-2xl border border-slate-200 text-sm font-bold outline-none bg-white shadow-sm"
+                value={channelFilter}
+                onChange={(e) => setChannelFilter(e.target.value)}
+              >
+                <option value="all">كل القنوات</option>
+                {orderChannels.map(ch => (
+                  <option key={ch} value={ch}>{ch}</option>
+                ))}
+              </select>
+  
+              <select
+                className="w-full py-3 px-4 rounded-2xl border border-slate-200 text-sm font-bold outline-none bg-white shadow-sm"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">كل الحالات</option>
+                <option value="مكتمل">مكتمل</option>
+                <option value="مرتجع">مرتجع</option>
+              </select>
             </div>
           </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-sm">
-              <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-widest font-bold">
-                <tr><th className="p-6 border-b">رقم الطلب</th><th className="p-6 border-b">التاريخ</th><th className="p-6 border-b">العميل</th><th className="p-6 border-b">الجوال</th><th className="p-6 border-b">القناة</th><th className="p-6 border-b">المبلغ</th><th className="p-6 border-b">الحالة</th></tr>
+  
+          <div className="overflow-x-auto rounded-3xl border border-slate-100 max-h-[70vh] overflow-y-auto custom-scrollbar">
+            <table className="w-full text-right text-sm bg-white">
+              <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-widest font-bold sticky top-0 z-10 shadow-sm">
+                <tr>
+                  <th className="p-5 border-b">رقم الطلب</th>
+                  <th className="p-5 border-b">التاريخ</th>
+                  <th className="p-5 border-b">العميل</th>
+                  <th className="p-5 border-b">الجوال</th>
+                  <th className="p-5 border-b">القناة</th>
+                  <th className="p-5 border-b">المبلغ</th>
+                  <th className="p-5 border-b">الحالة</th>
+                </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredOrders.length === 0 ? <tr><td colSpan="7" className="p-12 text-center text-slate-400 font-bold">لا توجد طلبات مطابقة.</td></tr> :
-                  filteredOrders.slice(0, 100).map((o, i) => (
-                    <tr key={i} className="hover:bg-indigo-50/30 transition-colors">
-                      <td className="p-6 font-mono text-slate-500 text-xs">{o.reference}</td>
-                      <td className="p-6 text-xs text-slate-500 font-bold">{o.date}</td>
-                      <td className="p-6 font-black text-slate-800">{o.customerName}</td>
-                      <td className="p-6 text-slate-500 font-mono text-xs" dir="ltr">{o.mobile}</td>
-                      <td className="p-6"><span className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg text-[10px] font-bold">{o.channel}</span></td>
-                      <td className="p-6 font-black text-emerald-600">{parseFloat(o.amount||0).toLocaleString()} ﷼</td>
-                      <td className="p-6"><span className={`px-3 py-1.5 rounded-lg text-[10px] font-bold ${o.status === 'مكتمل' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{o.status}</span></td>
+                {paginatedOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" className="p-12 text-center text-slate-400 font-bold">
+                      لا توجد نتائج مطابقة
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedOrders.map((o, i) => (
+                    <tr key={`${o.reference}-${i}`} className="hover:bg-indigo-50/30 transition-colors">
+                      <td className="p-5 font-mono text-slate-500 text-xs">{o.reference}</td>
+                      <td className="p-5 text-xs text-slate-500 font-bold">{o.date}</td>
+                      <td className="p-5 font-black text-slate-800">{o.customerName}</td>
+                      <td className="p-5 text-slate-500 font-mono text-xs" dir="ltr">{o.mobile}</td>
+                      <td className="p-5">
+                        <span className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg text-[10px] font-bold">
+                          {o.channel}
+                        </span>
+                      </td>
+                      <td className="p-5 font-black text-emerald-600">
+                        {parseFloat(o.amount || 0).toLocaleString()} ﷼
+                      </td>
+                      <td className="p-5">
+                        <span className={`px-3 py-1.5 rounded-lg text-[10px] font-bold ${
+                          o.status === 'مكتمل'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-rose-100 text-rose-700'
+                        }`}>
+                          {o.status}
+                        </span>
+                      </td>
                     </tr>
                   ))
-                }
+                )}
               </tbody>
             </table>
-            {filteredOrders.length > 100 && <div className="p-6 text-center text-xs font-bold text-slate-400 border-t border-slate-100">يتم عرض أحدث 100 سجل فقط.</div>}
+          </div>
+  
+          <div className="flex items-center justify-between mt-6">
+            <button
+              onClick={() => setOrdersPage(p => Math.max(1, p - 1))}
+              disabled={ordersPage === 1}
+              className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold disabled:opacity-50"
+            >
+              السابق
+            </button>
+  
+            <span className="text-sm font-bold text-slate-500">
+              صفحة {ordersPage} من {ordersTotalPages}
+            </span>
+  
+            <button
+              onClick={() => setOrdersPage(p => Math.min(ordersTotalPages, p + 1))}
+              disabled={ordersPage === ordersTotalPages}
+              className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold disabled:opacity-50"
+            >
+              التالي
+            </button>
           </div>
         </div>
       </div>
@@ -1135,9 +1379,9 @@ export default function App() {
           <div className="grid grid-cols-1 2xl:grid-cols-4 gap-8">
             {/* Main Table */}
             <div className="2xl:col-span-3">
-              <div className="overflow-x-auto rounded-3xl border border-slate-100">
+              <div className="overflow-x-auto rounded-3xl border border-slate-100 max-h-[70vh] overflow-y-auto custom-scrollbar">
                 <table className="w-full text-right text-sm bg-white">
-                  <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-widest font-bold">
+                  <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-widest font-bold sticky top-0 z-10 shadow-sm">
                     <tr>
                       <th className="p-5 border-b">اسم العميل</th>
                       <th className="p-5 border-b">الجوال</th>
@@ -1262,186 +1506,7 @@ export default function App() {
     );
   };
 
-  const DecisionCenterTab = () => {
-    return (
-      <div className="space-y-6 animate-in fade-in">
-        <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-8 shadow-xl text-white relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500 rounded-full blur-[100px] opacity-20 -mr-20 -mt-20"></div>
-          <h2 className="text-2xl font-black mb-2 flex items-center gap-3"><BrainCircuit className="text-indigo-400" size={28}/> مركز القرارات الإستراتيجية</h2>
-          <p className="text-slate-300 text-sm mb-8">يتم توليد هذه التوصيات بالذكاء الاصطناعي بناءً على الأرقام الحقيقية لهوامش الربح والعائد على الإعلانات.</p>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 relative z-10">
-            {businessDecisions.length === 0 ? <div className="col-span-2 text-center text-slate-400 py-10 font-bold bg-white/5 rounded-2xl">لا توجد توصيات حرجة حالياً. أرقامك مستقرة!</div> : 
-              businessDecisions.map((d, i) => (
-                <div key={i} className={`bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl p-5 flex items-start gap-4 ${d.color}`}>
-                  <div className="mt-0.5 bg-white/20 p-2 rounded-lg">
-                    {d.iconType === 'scale' ? <TrendingUp size={20}/> : d.iconType === 'stop' ? <X size={20}/> : d.iconType === 'product-good' ? <CheckCircle2 size={20}/> : d.iconType === 'warning' ? <AlertTriangle size={20}/> : <AlertOctagon size={20}/>}
-                  </div>
-                  <div>
-                    <h4 className="font-bold mb-1 text-white">{d.iconType === 'scale' ? 'فرصة نمو مؤكدة' : d.iconType === 'stop' ? 'إيقاف استنزاف' : d.iconType==='product-good' ? 'بطل المبيعات' : 'تحذير أداء'}</h4>
-                    <p className="text-sm opacity-90 leading-relaxed text-white">{d.msg}</p>
-                  </div>
-                </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const ProfitSimulatorTab = () => {
-    const [simData, setSimData] = useState({
-      glass: 0, cap: 0, pump: 0, oil: 0, box: 0, carton: 0, filling: 0, packaging: 0, printing: 0, other: 0,
-      price: 150, shipping: 25, commission: 5, adBudget: 1000, expectedOrders: 20, returnRate: 10
-    });
-
-    const handleCalc = (key, val) => setSimData(prev => ({...prev, [key]: parseFloat(val) || 0}));
-
-    const unitCost = simData.glass + simData.cap + simData.pump + simData.oil + simData.box + simData.carton + simData.filling + simData.packaging + simData.printing + simData.other;
-    const unitProfit = simData.price - unitCost - simData.shipping - simData.commission;
-    const effectiveProfit = unitProfit * (1 - (simData.returnRate/100)) - (simData.shipping * (simData.returnRate/100)); 
-    const breakEven = effectiveProfit > 0 ? Math.ceil(simData.adBudget / effectiveProfit) : 0;
-
-    return (
-      <div className="space-y-6 animate-in fade-in">
-        <div className="bg-white rounded-3xl p-6 md:p-8 shadow-sm border border-slate-100">
-          <div className="flex items-center gap-3 mb-8 border-b border-slate-100 pb-4">
-            <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><Calculator size={24}/></div>
-            <div>
-              <h2 className="text-xl font-black text-slate-800">محاكي الأرباح المتقدم (Profit Simulator)</h2>
-              <p className="text-xs text-slate-500 mt-1">احسب التكلفة الدقيقة للوحدة ونقاط التعادل للحملات التسويقية.</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2 space-y-8">
-              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
-                <h4 className="font-bold text-sm text-slate-800 mb-4 flex items-center gap-2"><Package size={16}/> تكاليف التصنيع (للعلبة)</h4>
-                <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
-                  {['glass:الزجاج', 'cap:الغطاء', 'pump:البامب', 'oil:الزيت', 'box:البكج', 'carton:الكرتون', 'filling:التعبئة', 'packaging:التغليف', 'printing:الطباعة', 'other:أخرى'].map(item => {
-                    const [key, label] = item.split(':');
-                    return (
-                      <div key={key}>
-                        <label className="block text-[10px] font-bold text-slate-500 mb-1">{label}</label>
-                        <input type="number" min="0" step="0.5" className="w-full bg-white border border-slate-200 p-2 rounded-lg text-sm text-center focus:ring-2 focus:ring-emerald-500 outline-none" value={simData[key] || ''} onChange={e=>handleCalc(key, e.target.value)} />
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="mt-4 text-left font-black text-sm text-slate-700 bg-white p-2 rounded-lg border inline-block">إجمالي تكلفة العلبة: {unitCost.toFixed(2)} ﷼</div>
-              </div>
-
-              <div className="bg-indigo-50/50 p-5 rounded-2xl border border-indigo-100">
-                <h4 className="font-bold text-sm text-indigo-900 mb-4 flex items-center gap-2"><ShoppingBag size={16}/> التسعير والتشغيل</h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div><label className="block text-[10px] font-bold text-indigo-700 mb-1">سعر البيع النهائي</label><input type="number" className="w-full bg-white border border-indigo-200 p-2 rounded-lg text-sm text-center focus:ring-2 outline-none font-bold" value={simData.price} onChange={e=>handleCalc('price', e.target.value)} /></div>
-                  <div><label className="block text-[10px] font-bold text-indigo-700 mb-1">متوسط الشحن للطلب</label><input type="number" className="w-full bg-white border border-indigo-200 p-2 rounded-lg text-sm text-center outline-none" value={simData.shipping} onChange={e=>handleCalc('shipping', e.target.value)} /></div>
-                  <div><label className="block text-[10px] font-bold text-indigo-700 mb-1">عمولات (سلة/بوابات)</label><input type="number" className="w-full bg-white border border-indigo-200 p-2 rounded-lg text-sm text-center outline-none" value={simData.commission} onChange={e=>handleCalc('commission', e.target.value)} /></div>
-                  <div><label className="block text-[10px] font-bold text-rose-700 mb-1">توقع نسبة المرتجع %</label><input type="number" className="w-full bg-white border border-rose-200 p-2 rounded-lg text-sm text-center outline-none text-rose-600 font-bold" value={simData.returnRate} onChange={e=>handleCalc('returnRate', e.target.value)} /></div>
-                </div>
-              </div>
-
-              <div className="bg-orange-50/50 p-5 rounded-2xl border border-orange-100">
-                <h4 className="font-bold text-sm text-orange-900 mb-4 flex items-center gap-2"><Megaphone size={16}/> حملة تسويقية (توقعات)</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div><label className="block text-[10px] font-bold text-orange-700 mb-1">الميزانية المرصودة</label><input type="number" className="w-full bg-white border border-orange-200 p-2 rounded-lg text-sm text-center outline-none font-bold" value={simData.adBudget} onChange={e=>handleCalc('adBudget', e.target.value)} /></div>
-                  <div><label className="block text-[10px] font-bold text-orange-700 mb-1">الطلبات المتوقعة من الحملة</label><input type="number" className="w-full bg-white border border-orange-200 p-2 rounded-lg text-sm text-center outline-none" value={simData.expectedOrders} onChange={e=>handleCalc('expectedOrders', e.target.value)} /></div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-slate-900 rounded-3xl p-6 text-white flex flex-col justify-between shadow-lg">
-               <div>
-                 <h3 className="font-black text-xl mb-6 text-emerald-400">النتائج وصناعة القرار</h3>
-                 <div className="space-y-4 mb-8">
-                   <div className="flex justify-between items-center border-b border-slate-700 pb-2">
-                     <span className="text-slate-400 text-sm">صافي ربح الطلب (بعد المرتجع)</span>
-                     <span className="font-black text-lg">{effectiveProfit.toFixed(2)} ﷼</span>
-                   </div>
-                   <div className="flex justify-between items-center border-b border-slate-700 pb-2">
-                     <span className="text-slate-400 text-sm">نقطة التعادل (لتغطية التسويق)</span>
-                     <span className="font-black text-rose-400 text-xl">{breakEven} طلب</span>
-                   </div>
-                   <div className="flex justify-between items-center border-b border-slate-700 pb-2">
-                     <span className="text-slate-400 text-sm">ROI الحملة المتوقع</span>
-                     <span className="font-black text-indigo-400 text-lg">{simData.adBudget > 0 ? ((simData.expectedOrders * simData.price) / simData.adBudget).toFixed(2) : 0}x</span>
-                   </div>
-                 </div>
-               </div>
-               <div className="bg-emerald-500/20 p-5 rounded-2xl border border-emerald-500/30 text-center">
-                 <p className="text-xs text-emerald-300 font-bold mb-1">الربح الصافي المتوقع من الحملة</p>
-                 <p className="text-3xl font-black text-emerald-400">{((simData.expectedOrders * effectiveProfit) - simData.adBudget).toLocaleString()} ﷼</p>
-               </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const DataAdminTab = () => {
-    const [confirmText, setConfirmText] = useState('');
-    const [nukeTarget, setNukeTarget] = useState(null); 
-
-    const handleNuke = async () => {
-      if (confirmText !== 'DELETE') { alert('يجب كتابة DELETE بالأحرف الكبيرة للتأكيد'); return; }
-      setIsSyncing(true);
-      try {
-        let collectionName = nukeTarget;
-        let dataArray = nukeTarget === 'movements' ? movements : nukeTarget === 'orders' ? orders : adCosts;
-        
-        const batchSize = 100;
-        for (let i = 0; i < dataArray.length; i += batchSize) {
-          const chunk = dataArray.slice(i, i + batchSize);
-          const batch = writeBatch(db);
-          chunk.forEach(docItem => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', collectionName, docItem.id)));
-          await batch.commit();
-        }
-        alert('تم مسح البيانات بنجاح');
-        setConfirmText(''); setNukeTarget(null);
-      } catch(e) { console.error(e); alert('خطأ أثناء المسح'); } finally { setIsSyncing(false); }
-    };
-
-    return (
-      <div className="space-y-6 animate-in fade-in max-w-3xl mx-auto">
-        <div className="bg-rose-50 border-2 border-rose-200 p-10 rounded-[2rem] shadow-sm relative overflow-hidden">
-          {isSyncing && <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10"><Loader2 className="animate-spin text-rose-600" size={48} /></div>}
-          <div className="flex items-center gap-5 mb-10 border-b border-rose-200 pb-8">
-            <div className="p-5 bg-rose-600 text-white rounded-3xl shadow-lg shadow-rose-200"><ShieldAlert size={40}/></div>
-            <div>
-              <h2 className="text-3xl font-black text-rose-900">منطقة الخطر (Data Admin)</h2>
-              <p className="text-sm text-rose-700 mt-2 font-bold">إجراءات لا رجعة فيها. استخدمها فقط لإعادة ضبط النظام.</p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            {[
-              { target: 'movements', title: 'مسح جميع حركات المخزون', count: movements.length },
-              { target: 'orders', title: 'مسح جميع الطلبات المستوردة', count: orders.length },
-              { target: 'adcosts', title: 'مسح سجل تكاليف التسويق', count: adCosts.length }
-            ].map(act => (
-              <div key={act.target} className="bg-white p-6 rounded-2xl border border-rose-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                  <h4 className="font-black text-rose-900 text-lg">{act.title}</h4>
-                  <p className="text-sm text-rose-500 font-mono mt-1 font-bold">{act.count} سجل متوفر</p>
-                </div>
-                {nukeTarget === act.target ? (
-                  <div className="flex gap-2 items-center w-full md:w-auto bg-rose-50 p-2 rounded-xl border border-rose-100">
-                    <input type="text" placeholder="اكتب DELETE" className="p-3 border border-rose-300 rounded-lg outline-none text-sm w-32 text-center font-black text-rose-700" value={confirmText} onChange={e=>setConfirmText(e.target.value)}/>
-                    <button onClick={handleNuke} className="bg-rose-600 text-white px-6 py-3 rounded-lg text-sm font-black hover:bg-rose-700 transition-colors shadow-md">تأكيد</button>
-                    <button onClick={()=>{setNukeTarget(null);setConfirmText('');}} className="bg-white text-slate-700 px-4 py-3 rounded-lg text-sm font-bold border border-slate-200">إلغاء</button>
-                  </div>
-                ) : (
-                  <button onClick={()=>setNukeTarget(act.target)} disabled={act.count === 0} className="w-full md:w-auto bg-rose-100 text-rose-700 px-8 py-3 rounded-xl text-sm font-black hover:bg-rose-200 disabled:opacity-50 transition-colors">تحديد للمسح</button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
+  // --- MAIN RENDER ---
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800" dir="rtl">
       <nav className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
@@ -1484,7 +1549,7 @@ export default function App() {
       <main className="max-w-[1600px] mx-auto px-4 lg:px-8 py-8 mb-20 md:mb-8">
         {activeTab === 'dashboard' && <DashboardTab />}
         {activeTab === 'movements' && hasAccess(['super_admin', 'admin', 'editor']) && <><UploadTab/><ManualMovementForm/></>}
-        {activeTab === 'orders' && hasAccess(['super_admin', 'admin', 'editor']) && <OrdersAndCRMTab mode="orders"/>}
+        {activeTab === 'orders' && hasAccess(['super_admin', 'admin', 'editor']) && <OrdersTab />}
         {activeTab === 'crm' && hasAccess(['super_admin', 'admin']) && <CRMTab />}
         {activeTab === 'adcosts' && hasAccess(['super_admin', 'admin']) && <AdCostsTab />}
         {activeTab === 'decision_center' && hasAccess(['super_admin']) && <DecisionCenterTab />}
@@ -1496,5 +1561,13 @@ export default function App() {
       
       <style dangerouslySetInnerHTML={{__html: `@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap'); body { font-family: 'Tajawal', sans-serif; background-color: #f8fafc; } .scrollbar-hide::-webkit-scrollbar { display: none; } .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; } .custom-scrollbar::-webkit-scrollbar { width: 4px; } .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 4px; } .mask-edges { -webkit-mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent); mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent); }`}} />
     </div>
+  );
+}
+
+export default function AppWrapper() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   );
 }

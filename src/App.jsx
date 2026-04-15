@@ -52,6 +52,17 @@ const safeConfirm = (msg) => {
   return false;
 };
 
+// خريطة كلاسات Tailwind الثابتة
+const kpiColors = {
+  indigo: { bg: 'bg-indigo-500', iconBg: 'bg-indigo-50', iconText: 'text-indigo-600', text: 'text-indigo-700' },
+  emerald: { bg: 'bg-emerald-500', iconBg: 'bg-emerald-50', iconText: 'text-emerald-600', text: 'text-emerald-700' },
+  rose: { bg: 'bg-rose-500', iconBg: 'bg-rose-50', iconText: 'text-rose-600', text: 'text-rose-700' },
+  blue: { bg: 'bg-blue-500', iconBg: 'bg-blue-50', iconText: 'text-blue-600', text: 'text-blue-700' },
+  purple: { bg: 'bg-purple-500', iconBg: 'bg-purple-50', iconText: 'text-purple-600', text: 'text-purple-700' },
+  orange: { bg: 'bg-orange-500', iconBg: 'bg-orange-50', iconText: 'text-orange-600', text: 'text-orange-700' },
+  amber: { bg: 'bg-amber-500', iconBg: 'bg-amber-50', iconText: 'text-amber-600', text: 'text-amber-700' }
+};
+
 // SVG Line Chart Component
 const SimpleLineChart = ({ data, dataKey, height = 200 }) => {
   if (!data || data.length === 0) return null;
@@ -89,6 +100,7 @@ const SimpleLineChart = ({ data, dataKey, height = 200 }) => {
 };
 
 export default function App() {
+  // --- 1. STATES ---
   const [activeTab, setActiveTab] = useState('dashboard');
   
   const [todayStr, setTodayStr] = useState(() => new Date().toISOString().split('T')[0]);
@@ -99,21 +111,8 @@ export default function App() {
     return d.toISOString().split('T')[0];
   });
 
-  useEffect(() => {
-    if (periodType === 'day') setStartDate(endDate);
-    else if (periodType === 'week') {
-      const d = new Date(endDate); d.setDate(d.getDate() - 6);
-      setStartDate(d.toISOString().split('T')[0]);
-    }
-    else if (periodType === 'month') {
-      const d = new Date(endDate); d.setMonth(d.getMonth() - 1);
-      setStartDate(d.toISOString().split('T')[0]);
-    }
-  }, [periodType, endDate]);
-
   const [user, setUser] = useState(null);
   
-  // Data States
   const [movements, setMovements] = useState([]);
   const [adCosts, setAdCosts] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -122,17 +121,14 @@ export default function App() {
   const [channelsList, setChannelsList] = useState(['المتجر (عضوي)', 'تيك توك', 'سناب شات', 'واتساب']); 
   
   const [permissions, setPermissions] = useState({});
-  const [currentUserRole, setCurrentUserRole] = useState('viewer'); // super_admin, admin, editor, viewer
+  const [currentUserRole, setCurrentUserRole] = useState('viewer');
 
-  // Loading States
   const [isLoading, setIsLoading] = useState(true);
   const [isSettingsLoaded, setIsSettingsLoaded] = useState(false);
   const [isPermissionsLoaded, setIsPermissionsLoaded] = useState(false);
-  
   const [isSyncing, setIsSyncing] = useState(false);
   const [authError, setAuthError] = useState(null);
 
-  // Authentication State
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState(''); 
@@ -147,15 +143,26 @@ export default function App() {
     { id: 'decision_center', label: 'مركز القرارات', icon: <BrainCircuit size={18}/>, roles: ['super_admin'] },
     { id: 'profit_simulator', label: 'محاكي الأرباح', icon: <Calculator size={18}/>, roles: ['super_admin'] },
     { id: 'definitions', label: 'الإعدادات', icon: <Tags size={18}/>, roles: ['super_admin', 'admin'] },
-    { id: 'users', label: 'المستخدمين', icon: <Users size={18}/>, roles: ['super_admin'] },
+    { id: 'users', label: 'المستخدمين', icon: <Shield size={18}/>, roles: ['super_admin'] },
     { id: 'data_admin', label: 'إدارة البيانات', icon: <ShieldAlert size={18}/>, roles: ['super_admin'] }
   ];
+
+  // --- 2. EFFECTS ---
+  useEffect(() => {
+    if (periodType === 'day') setStartDate(endDate);
+    else if (periodType === 'week') {
+      const d = new Date(endDate); d.setDate(d.getDate() - 6);
+      setStartDate(d.toISOString().split('T')[0]);
+    }
+    else if (periodType === 'month') {
+      const d = new Date(endDate); d.setMonth(d.getMonth() - 1);
+      setStartDate(d.toISOString().split('T')[0]);
+    }
+  }, [periodType, endDate]);
 
   useEffect(() => {
     const fallbackTimer = setTimeout(() => { 
       setIsLoading(false); 
-      setIsSettingsLoaded(true); 
-      setIsPermissionsLoaded(true); 
     }, 4000);
     return () => clearTimeout(fallbackTimer);
   }, []);
@@ -182,10 +189,12 @@ export default function App() {
         setCurrentUserRole('super_admin');
       }
       setIsPermissionsLoaded(true);
-    }, () => setIsPermissionsLoaded(true));
+    }, (error) => {
+      console.error(error);
+      setIsPermissionsLoaded(true);
+    });
   }, [user]);
 
-  // Fetch All Core Data
   useEffect(() => {
     if (!user) return;
     const loadCollection = (colName, setter) => {
@@ -208,11 +217,51 @@ export default function App() {
         setPackages(data.packages || {});
         if(data.channelsList) setChannelsList(data.channelsList);
       }
+      setIsSettingsLoaded(true); 
+    }, (error) => {
+      console.error(error);
       setIsSettingsLoaded(true);
-    }, () => setIsSettingsLoaded(true));
+    });
 
     return () => { unsubMov(); unsubAd(); unsubOrd(); unsubSet(); };
   }, [user]);
+
+  // --- 3. HANDLERS ---
+  const handleLogin = async (e) => {
+    e.preventDefault(); setIsLoggingIn(true); setLoginError('');
+    try { await signInWithEmailAndPassword(auth, email, password); } 
+    catch (error) { setLoginError('بيانات الدخول غير صحيحة.'); } 
+    finally { setIsLoggingIn(false); }
+  };
+
+  const handleLogout = () => signOut(auth);
+
+  const handleExportExcel = () => {
+    const htmlContent = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+        <style>
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; direction: rtl; text-align: right; }
+          table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+          th { background-color: #1e293b; color: #ffffff; padding: 10px; border: 1px solid #cbd5e1; text-align: center; }
+          td { padding: 8px; border: 1px solid #cbd5e1; text-align: center; }
+        </style>
+      </head>
+      <body dir="rtl">
+        <h2>تقرير أسباركل المالي والتشغيلي</h2>
+        <p><strong>الفترة:</strong> من ${startDate} إلى ${endDate}</p>
+      </body>
+      </html>
+    `;
+    const blob = new Blob([htmlContent], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `تقرير_ارباح_اسباركل_${endDate}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const updateSettingsInCloud = async (newProductDetails, newPackages, newChannels) => {
     if (!user) return;
@@ -226,17 +275,22 @@ export default function App() {
     } catch (error) { alert('خطأ في الحفظ'); } finally { setIsSyncing(false); }
   };
 
-  const handleLogin = async (e) => {
-    e.preventDefault(); setIsLoggingIn(true); setLoginError('');
-    try { await signInWithEmailAndPassword(auth, email, password); } 
-    catch (error) { setLoginError('بيانات الدخول غير صحيحة.'); } 
-    finally { setIsLoggingIn(false); }
+  const addMovementToCloud = async (data) => {
+    if (!user) return;
+    setIsSyncing(true);
+    try {
+      const movementId = `mov_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'movements', movementId);
+      await setDoc(docRef, { ...data, timestamp: Date.now() });
+    } catch (error) {
+      console.error(error);
+      alert("حدث خطأ أثناء حفظ البيانات.");
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
-  const handleLogout = () => signOut(auth);
-
-  // --- CORE PRE-PROCESSING & DERIVATIONS ---
-  
+  // --- 4. DATA MEMOS (Pre-processing) ---
   const parsedMovements = useMemo(() => {
     return movements.map(m => ({
       ...m,
@@ -248,8 +302,7 @@ export default function App() {
 
   const movementsInPeriod = useMemo(() => parsedMovements.filter(m => m.date >= startDate && m.date <= endDate), [parsedMovements, startDate, endDate]);
   const adCostsInPeriod = useMemo(() => adCosts.filter(c => c.date >= startDate && c.date <= endDate), [adCosts, startDate, endDate]);
-  const ordersInPeriod = useMemo(() => orders.filter(o => o.date >= startDate && o.date <= endDate), [orders, startDate, endDate]);
-
+  
   const stockAsOfDate = useMemo(() => {
     let stock = {};
     Object.values(productDetails).forEach(p => stock[p.sku] = parseInt(p.openingStock) || 0);
@@ -357,7 +410,6 @@ export default function App() {
     return Object.entries(result).map(([sku, data]) => ({ sku, ...data })).sort((a, b) => b.profit - a.profit);
   }, [movementsInPeriod, productDetails]);
 
-  // CRM Derived Data
   const customers = useMemo(() => {
     const cusMap = {};
     orders.forEach(o => {
@@ -385,8 +437,8 @@ export default function App() {
     Object.entries(channelStats).forEach(([ch, data]) => {
       if (ch === 'المنتجات الفردية' || ch === 'غير محدد') return;
       if (data.returnRate > 0.15) decisions.push({ type: 'warning', iconType: 'warning', color: 'text-orange-700 bg-orange-100 border-orange-200', msg: `معدل استرجاع خطر ( ${(data.returnRate*100).toFixed(1)}% ) في قناة (${ch}) ⚠️` });
-      if (data.adCost > 0 && data.roi < 1.5 && data.netSales > 0) decisions.push({ type: 'stop', iconType: 'stop', color: 'text-red-700 bg-red-100 border-red-200', msg: `أوقف استنزاف الأموال في (${ch}) ❌ - العائد ضعيف.` });
-      if (data.adCost > 0 && data.roi >= 3) decisions.push({ type: 'scale', iconType: 'scale', color: 'text-green-700 bg-green-100 border-green-200', msg: `ضاعف الميزانية في (${ch}) 🔥 - قناة تدر ذهباً!` });
+      if (data.adCost > 0 && data.roi < 1.5 && data.netSales > 0) decisions.push({ type: 'stop', iconType: 'stop', color: 'text-rose-700 bg-rose-100 border-rose-200', msg: `أوقف استنزاف الأموال في (${ch}) ❌ - العائد ضعيف.` });
+      if (data.adCost > 0 && data.roi >= 3) decisions.push({ type: 'scale', iconType: 'scale', color: 'text-emerald-700 bg-emerald-100 border-emerald-200', msg: `ضاعف الميزانية في (${ch}) 🔥 - قناة تدر ذهباً!` });
     });
     const topProduct = productStats.find(p => p.sales > 0);
     const worstProduct = [...productStats].reverse().find(p => p.profit < 0);
@@ -407,13 +459,12 @@ export default function App() {
     return { totalRevenue, totalAdCost, netSales, netProfit: totalRevenue - totalCogs - totalAdCost };
   }, [channelStats, movementsInPeriod, adCostsInPeriod]);
 
-  // --- ACCESS CONTROL GUARD ---
   const hasAccess = (requiredRoles) => {
     if (currentUserRole === 'super_admin') return true;
     return requiredRoles.includes(currentUserRole);
   };
 
-  // --- COMPONENTS ---
+  // --- 5. SUB-COMPONENTS ---
 
   const DashboardTab = () => {
     const trendDates = useMemo(() => {
@@ -441,20 +492,27 @@ export default function App() {
 
     return (
       <div className="space-y-8 animate-in fade-in">
-        {/* Filters */}
-        <div className="flex flex-wrap justify-between items-center gap-4 bg-white/50 backdrop-blur-sm p-4 rounded-2xl border border-slate-200/60 shadow-sm">
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <CalendarDays size={20} className="text-slate-400 hidden md:block" />
-            <div className="flex gap-2 w-full md:w-auto">
-              <select className="bg-white border border-slate-200 text-sm font-bold text-slate-700 py-2.5 px-4 rounded-xl focus:ring-2 ring-indigo-500/20 outline-none w-full md:w-auto" value={periodType} onChange={e=>setPeriodType(e.target.value)}>
-                <option value="day">اليوم</option><option value="week">هذا الأسبوع</option><option value="month">هذا الشهر</option><option value="custom">مخصص</option>
+        {/* 🔥 استعادة الفلتر العلوي كما طلبت */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-8">
+          <button onClick={handleExportExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-3 rounded-xl flex items-center gap-2 shadow-sm">
+            <Download size={18} /> تصدير التقرير (Excel)
+          </button>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">فترة التقرير</label>
+              <select className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" value={periodType} onChange={(e) => setPeriodType(e.target.value)}>
+                <option value="day">يوم واحد</option><option value="week">أسبوع</option><option value="month">شهر</option><option value="custom">مخصص</option>
               </select>
-              {periodType === 'custom' && (
-                <div className="flex gap-2 w-full md:w-auto">
-                  <input type="date" className="bg-white border border-slate-200 text-sm font-bold text-slate-700 py-2.5 px-3 rounded-xl outline-none w-full md:w-auto" value={startDate} onChange={e=>setStartDate(e.target.value)} />
-                  <input type="date" className="bg-white border border-slate-200 text-sm font-bold text-slate-700 py-2.5 px-3 rounded-xl outline-none w-full md:w-auto" value={endDate} onChange={e=>setEndDate(e.target.value)} />
-                </div>
-              )}
+            </div>
+            {periodType === 'custom' && (
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">من تاريخ</label>
+                <input type="date" className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-bold text-slate-500 mb-1">{periodType === 'custom' ? 'إلى تاريخ' : 'التاريخ'}</label>
+              <input type="date" className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </div>
           </div>
         </div>
@@ -467,14 +525,15 @@ export default function App() {
             <h2 className="text-4xl font-black tracking-tight">{dashboardStats.netProfit.toLocaleString()} ﷼</h2>
           </div>
           {[
-            { label: "الإيرادات", value: `${dashboardStats.totalRevenue.toLocaleString()} ﷼`, icon: <TrendingUp/>, color: "text-emerald-600", bg: "bg-emerald-50" },
-            { label: "تكلفة الإعلانات", value: `${dashboardStats.totalAdCost.toLocaleString()} ﷼`, icon: <Megaphone/>, color: "text-rose-600", bg: "bg-rose-50" },
-            { label: "صافي المبيعات", value: `${dashboardStats.netSales} طلب`, icon: <ShoppingBag/>, color: "text-blue-600", bg: "bg-blue-50" }
+            { label: "الإيرادات", value: `${dashboardStats.totalRevenue.toLocaleString()} ﷼`, icon: <TrendingUp/>, color: "emerald" },
+            { label: "تكلفة الإعلانات", value: `${dashboardStats.totalAdCost.toLocaleString()} ﷼`, icon: <Megaphone/>, color: "rose" },
+            { label: "صافي المبيعات", value: `${dashboardStats.netSales} طلب`, icon: <ShoppingBag/>, color: "blue" }
           ].map((k, i) => (
             <div key={i} className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col justify-center relative overflow-hidden hover:shadow-md transition-shadow">
-              <div className={`absolute top-6 left-6 p-3 rounded-2xl ${k.bg} ${k.color}`}>{k.icon}</div>
+              <div className={`absolute top-0 right-0 w-1 h-full ${kpiColors[k.color].bg}`}></div>
+              <div className={`absolute top-6 left-6 p-3 rounded-2xl ${kpiColors[k.color].iconBg} ${kpiColors[k.color].iconText}`}>{k.icon}</div>
               <p className="text-slate-400 text-sm font-bold uppercase tracking-wider mb-2">{k.label}</p>
-              <h2 className="text-3xl font-black text-slate-800">{k.value}</h2>
+              <h2 className={`text-3xl font-black ${kpiColors[k.color].text}`}>{k.value}</h2>
             </div>
           ))}
         </div>
@@ -554,6 +613,281 @@ export default function App() {
                </div>
              ))}
            </div>
+        </div>
+      </div>
+    );
+  };
+
+  const UploadTab = () => {
+    const fileInputRef = useRef(null);
+    const [importPreview, setImportPreview] = useState(null);
+    const [importMode, setImportMode] = useState('sales');
+
+    const handleFileUpload = async (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      try {
+        const XLSX = await loadXLSX();
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          const data = new Uint8Array(event.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
+          if(rows.length < 2) return alert('ملف غير صالح');
+
+          const headers = rows[0].map(h => String(h || ''));
+          const orderIdCol = headers.findIndex(h => h.includes('رقم الطلب') || h.includes('رقم'));
+          const productCol = headers.findIndex(h => h.includes('نوع الطلب') || h.includes('المنتجات') || h.includes('اسم المنتج'));
+          const qtyCol = headers.findIndex(h => h.includes('الكمية') || h.includes('العدد') || h === 'Qty');
+          const paymentCol = headers.findIndex(h => h.includes('طريقة الدفع') || h.includes('الدفع'));
+          const customerCol = headers.findIndex(h => h.includes('اسم العميل') || h.includes('العميل'));
+          const mobileCol = headers.findIndex(h => h.includes('الجوال') || h.includes('هاتف'));
+          const amountCol = headers.findIndex(h => h.includes('إجمالي') || h.includes('المبلغ') || h.includes('مجموع'));
+
+          const parsedOrders = [];
+          const parsedMovementsLocal = [];
+          
+          for (let i = 1; i < rows.length; i++) {
+            const row = rows[i]; if(!row || row.length === 0) continue;
+            let orderId = row[orderIdCol] ? String(row[orderIdCol]).replace(/["']/g, '').replace(/^\uFEFF/, '') : '';
+            if(!orderId) continue;
+
+            let productStr = productCol !== -1 ? String(row[productCol] || '') : '';
+            let paymentStr = paymentCol !== -1 ? String(row[paymentCol] || '') : '';
+            let customerName = customerCol !== -1 ? String(row[customerCol] || 'غير معروف') : 'غير معروف';
+            let mobile = mobileCol !== -1 ? String(row[mobileCol] || '').replace(/[^0-9+]/g, '') : '';
+            let amount = amountCol !== -1 ? parseFloat(row[amountCol]) || 0 : 0;
+            
+            let qty = 1;
+            if (qtyCol !== -1 && row[qtyCol] !== undefined && !isNaN(parseInt(row[qtyCol]))) { qty = parseInt(row[qtyCol]); } 
+            else { const qtyMatch = productStr.match(/Qty:\s*(\d+)/i); if (qtyMatch) qty = parseInt(qtyMatch[1]); }
+
+            let mappedCode = null; let mappedLevel = 'بكج';
+            const skuMatch = productStr.match(/SKU:\s*([a-zA-Z0-9_-]+)/i);
+            
+            if (skuMatch && packages[skuMatch[1]]) { mappedCode = skuMatch[1]; } 
+            else if (productStr.includes('مجموعة سباركل الكاملة') || productStr.includes('مجموعة سبارك الكاملة')) { mappedCode = 'asg002'; } 
+            else if (productStr.includes('بكج اسباركل') || productStr.includes('بكج التأسيس')) { mappedCode = 'asg001'; } 
+            else if (productStr.includes('بكج العساف')) { mappedCode = 'asg003'; } 
+            else if (productStr.includes('بكج الـ 7 عطور')) { mappedCode = 'asg002'; } 
+            else {
+              Object.entries(packages).forEach(([code, pkg]) => { if(productStr.includes(code) || productStr.includes(pkg.name)) mappedCode = code; });
+            }
+            if (!mappedCode) {
+              Object.keys(productDetails).forEach(sku => { if(productStr.includes(sku)) { mappedCode = sku; mappedLevel = 'منتج'; } });
+            }
+            if (!mappedCode) mappedCode = Object.keys(packages)[0] || Object.keys(productDetails)[0];
+
+            let movType = 'بيع آلي (عبر الربط)'; 
+            if (importMode === 'sales') {
+               if (paymentStr.includes('تمارا') || paymentStr.includes('تابي')) movType = 'بيع (تمارا)';
+               else if (paymentStr.includes('عند الاستلام') || paymentStr.includes('الدفع عند الاستلام')) movType = 'بيع (دفع عند الاستلام)';
+               else if (paymentStr !== '') movType = 'بيع (دفع إلكتروني)';
+            } else { movType = 'مرتجع (إلغاء رغبة العميل)'; }
+
+            const channelName = mappedLevel === 'بكج' ? (packages[mappedCode]?.channel || 'عضوي') : 'المنتجات الفردية';
+            
+            parsedOrders.push({ date: todayStr, reference: orderId, customerName, mobile, amount, channel: channelName, status: importMode==='sales'?'مكتمل':'مرتجع' });
+            parsedMovementsLocal.push({ date: todayStr, level: mappedLevel, code: mappedCode, type: movType, quantity: qty, reference: orderId, note: importMode === 'sales' ? 'استيراد مبيعات' : 'استيراد رجيع' });
+          }
+          setImportPreview({ orders: parsedOrders, movements: parsedMovementsLocal });
+          if (fileInputRef.current) fileInputRef.current.value = '';
+        };
+        reader.readAsArrayBuffer(file);
+      } catch (err) { alert('خطأ في القراءة'); }
+    };
+
+    const confirmImport = async () => {
+      if(!importPreview || importPreview.movements.length === 0) return;
+      setIsSyncing(true);
+      try {
+        const batchSize = 50; 
+        const uniqueOrders = [];
+        const seenRefs = new Set(orders.map(o => o.reference)); 
+        for (const o of importPreview.orders) {
+          if (!seenRefs.has(o.reference)) { seenRefs.add(o.reference); uniqueOrders.push(o); }
+        }
+
+        for (let i = 0; i < uniqueOrders.length; i += batchSize) {
+          const chunk = uniqueOrders.slice(i, i + batchSize);
+          const batch = writeBatch(db);
+          chunk.forEach((ord, index) => {
+            const now = Date.now() + index; 
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', `ord_${now}_${Math.random().toString(36).slice(2, 6)}`);
+            batch.set(docRef, { ...ord, timestamp: now });
+          });
+          await batch.commit();
+        }
+
+        for (let i = 0; i < importPreview.movements.length; i += batchSize) {
+          const chunk = importPreview.movements.slice(i, i + batchSize);
+          const batch = writeBatch(db);
+          chunk.forEach((mov, index) => {
+            const now = Date.now() + index; 
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'movements', `mov_${now}_${Math.random().toString(36).slice(2, 6)}`);
+            batch.set(docRef, { ...mov, timestamp: now });
+          });
+          await batch.commit();
+        }
+        
+        alert('تم دمج العمليات وبناء قاعدة العملاء بنجاح!'); setImportPreview(null);
+      } catch (e) { console.error(e); alert('خطأ أثناء الرفع'); } finally { setIsSyncing(false); }
+    };
+
+    return (
+      <div className="bg-white p-6 md:p-10 rounded-3xl border border-slate-100 shadow-sm animate-in fade-in">
+        <h2 className="text-2xl font-black text-slate-800 mb-2 flex items-center gap-3"><UploadCloud className="text-indigo-500" size={28}/> استيراد البيانات (ETL Engine)</h2>
+        <p className="text-slate-500 text-sm mb-8">ارفع ملفات سلة لبناء بيانات المخزون، الإيرادات، وقاعدة بيانات العملاء دفعة واحدة.</p>
+
+        {importPreview ? (
+          <div className="bg-indigo-50 border border-indigo-100 rounded-3xl p-8">
+            <h4 className="font-black text-indigo-900 mb-6 flex items-center gap-2 text-lg"><CheckCircle2/> تأكيد استيراد البيانات</h4>
+            <div className="flex flex-col md:flex-row gap-6 mb-8">
+              <div className="bg-white p-6 rounded-2xl flex-1 text-center shadow-sm border border-indigo-100/50">
+                <span className="block text-4xl font-black text-indigo-600 mb-2">{importPreview.orders.length}</span><span className="text-sm font-bold text-slate-500">طلب (يبني الـ CRM)</span>
+              </div>
+              <div className="bg-white p-6 rounded-2xl flex-1 text-center shadow-sm border border-indigo-100/50">
+                <span className="block text-4xl font-black text-emerald-600 mb-2">{importPreview.movements.length}</span><span className="text-sm font-bold text-slate-500">حركة مخزون ومالية</span>
+              </div>
+            </div>
+            <div className="flex gap-4">
+              <button onClick={confirmImport} disabled={isSyncing} className="flex-1 bg-indigo-600 text-white font-black py-4 rounded-xl hover:bg-indigo-700 shadow-md transition-colors">{isSyncing ? 'جاري المعالجة...' : 'تأكيد واعتماد الرفع'}</button>
+              <button onClick={()=>setImportPreview(null)} disabled={isSyncing} className="bg-white text-slate-700 border font-bold py-4 px-8 rounded-xl hover:bg-slate-50 transition-colors">إلغاء</button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col md:flex-row gap-6 items-center bg-slate-50 p-8 rounded-3xl border border-slate-200 border-dashed">
+            <div className="flex-1 w-full">
+              <label className="flex items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200 cursor-pointer hover:border-indigo-500 transition-colors mb-4 shadow-sm">
+                <input type="radio" name="mode" className="accent-indigo-600 w-5 h-5" checked={importMode==='sales'} onChange={()=>setImportMode('sales')}/>
+                <div><p className="font-black text-slate-800 text-base">مبيعات (تم التوصيل)</p><p className="text-xs font-bold text-slate-500 mt-1">يضيف إيرادات ويبني عملاء</p></div>
+              </label>
+              <label className="flex items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200 cursor-pointer hover:border-rose-500 transition-colors shadow-sm">
+                <input type="radio" name="mode" className="accent-rose-600 w-5 h-5" checked={importMode==='returns'} onChange={()=>setImportMode('returns')}/>
+                <div><p className="font-black text-slate-800 text-base">مرتجعات (دعم فني)</p><p className="text-xs font-bold text-slate-500 mt-1">يخصم إيرادات ويسترد بضاعة</p></div>
+              </label>
+            </div>
+            <div className="w-full md:w-1/2">
+              <input type="file" accept=".csv, .xlsx, .xls" ref={fileInputRef} onChange={handleFileUpload} className="hidden" id="file-upload"/>
+              <label htmlFor="file-upload" className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-6 rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer transition-colors shadow-lg h-full min-h-[160px]">
+                <FileSpreadsheet size={40}/>
+                <span className="text-lg">اختيار ورفع ملف (سلة)</span>
+              </label>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const ManualMovementForm = () => {
+    const defaultCode = Object.keys(productDetails)[0] || '';
+    const defaultPkgCode = Object.keys(packages)[0] || '';
+    const [formData, setFormData] = useState({ date: todayStr, level: 'منتج', code: defaultCode, type: MOVEMENT_TYPES[0].id, quantity: 1, reference: '', note: '' });
+    
+    useEffect(() => { 
+      setFormData(prev => ({ ...prev, code: prev.level === 'منتج' ? defaultCode : defaultPkgCode })); 
+    }, [productDetails, packages, formData.level]);
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      await addMovementToCloud(formData);
+      setFormData({ ...formData, quantity: 1, reference: '', note: '' });
+      alert('تم التسجيل بنجاح');
+    };
+
+    return (
+      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm animate-in fade-in mt-6">
+        <h3 className="text-xl font-bold mb-6 text-slate-800 border-b border-slate-100 pb-4">إدخال مخزون يدوي (طوارئ / جرد)</h3>
+        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div><label className="block text-xs font-bold mb-1 text-slate-600">التاريخ</label><input type="date" required className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} /></div>
+          <div><label className="block text-xs font-bold mb-1 text-slate-600">المستوى</label><select className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.level} onChange={e => setFormData({...formData, level: e.target.value})}><option value="منتج">منتج فردي</option><option value="بكج">بكج / عرض</option></select></div>
+          <div>
+            <label className="block text-xs font-bold mb-1 text-slate-600">الكود</label>
+            <select className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})} required>
+              {formData.level === 'منتج' ? Object.keys(productDetails).map(p => <option key={p} value={p}>{p} - {productDetails[p].name}</option>) : Object.keys(packages).map(p => <option key={p} value={p}>{p} - {packages[p].name}</option>)}
+            </select>
+          </div>
+          <div><label className="block text-xs font-bold mb-1 text-slate-600">النوع</label><select className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>{MOVEMENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.id}</option>)}</select></div>
+          <div><label className="block text-xs font-bold mb-1 text-slate-600">الكمية</label><input type="number" min="1" required className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.quantity} onChange={e => setFormData({...formData, quantity: e.target.value})} /></div>
+          <div><label className="block text-xs font-bold mb-1 text-slate-600">المرجع</label><input type="text" className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.reference} onChange={e => setFormData({...formData, reference: e.target.value})} /></div>
+          <div className="md:col-span-2"><label className="block text-xs font-bold mb-1 text-slate-600">ملاحظات</label><input type="text" className="w-full p-2.5 bg-slate-50 rounded-xl border-none outline-none" value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})} /></div>
+          <div className="md:col-span-4 mt-2"><button type="submit" disabled={isSyncing} className="w-full bg-slate-800 text-white p-3.5 rounded-xl font-bold hover:bg-slate-900 transition-colors">تنفيذ الحركة</button></div>
+        </form>
+      </div>
+    );
+  };
+
+  const OrdersAndCRMTab = ({ mode = 'orders' }) => {
+    const [searchTerm, setSearchTerm] = useState('');
+    
+    const filteredOrders = useMemo(() => {
+      if(!searchTerm) return orders;
+      return orders.filter(o => (o.reference||'').includes(searchTerm) || (o.customerName||'').includes(searchTerm) || (o.mobile||'').includes(searchTerm));
+    }, [orders, searchTerm]);
+
+    const filteredCRM = useMemo(() => {
+      if(!searchTerm) return customers;
+      return customers.filter(c => c.name.includes(searchTerm) || c.mobile.includes(searchTerm));
+    }, [customers, searchTerm]);
+
+    return (
+      <div className="space-y-6 animate-in fade-in">
+        <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
+          <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-slate-50/50">
+            <div>
+              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">{mode === 'orders' ? <ShoppingBag className="text-indigo-500" size={28}/> : <UsersRound className="text-indigo-500" size={28}/>} {mode === 'orders' ? 'الطلبات' : 'العملاء (CRM)'}</h2>
+              <p className="text-sm text-slate-500 mt-2">{mode === 'orders' ? 'سجل كافة الطلبات الواردة من المتجر.' : 'قاعدة بيانات العملاء وتصنيفهم الذكي.'}</p>
+            </div>
+            <div className="w-full md:w-80 relative">
+              <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input type="text" placeholder="بحث برقم، اسم، أو جوال..." className="w-full pl-4 pr-12 py-3 rounded-2xl border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none bg-white shadow-sm" value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-right text-sm">
+              <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-widest font-bold">
+                {mode === 'orders' ? (
+                  <tr><th className="p-6 border-b">رقم الطلب</th><th className="p-6 border-b">التاريخ</th><th className="p-6 border-b">العميل</th><th className="p-6 border-b">الجوال</th><th className="p-6 border-b">القناة</th><th className="p-6 border-b">المبلغ</th><th className="p-6 border-b">الحالة</th></tr>
+                ) : (
+                  <tr><th className="p-6 border-b">اسم العميل</th><th className="p-6 border-b">الجوال</th><th className="p-6 border-b text-center">عدد الطلبات</th><th className="p-6 border-b">إجمالي الإنفاق</th><th className="p-6 border-b">آخر طلب</th><th className="p-6 border-b">التصنيف</th></tr>
+                )}
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {mode === 'orders' ? (
+                  filteredOrders.length === 0 ? <tr><td colSpan="7" className="p-12 text-center text-slate-400 font-bold">لا توجد طلبات مطابقة.</td></tr> :
+                  filteredOrders.slice(0, 100).map((o, i) => (
+                    <tr key={i} className="hover:bg-indigo-50/30 transition-colors">
+                      <td className="p-6 font-mono text-slate-500 text-xs">{o.reference}</td>
+                      <td className="p-6 text-xs text-slate-500 font-bold">{o.date}</td>
+                      <td className="p-6 font-black text-slate-800">{o.customerName}</td>
+                      <td className="p-6 text-slate-500 font-mono text-xs" dir="ltr">{o.mobile}</td>
+                      <td className="p-6"><span className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg text-[10px] font-bold">{o.channel}</span></td>
+                      <td className="p-6 font-black text-emerald-600">{parseFloat(o.amount||0).toLocaleString()} ﷼</td>
+                      <td className="p-6"><span className={`px-3 py-1.5 rounded-lg text-[10px] font-bold ${o.status === 'مكتمل' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{o.status}</span></td>
+                    </tr>
+                  ))
+                ) : (
+                  filteredCRM.length === 0 ? <tr><td colSpan="6" className="p-12 text-center text-slate-400 font-bold">لا يوجد عملاء.</td></tr> :
+                  filteredCRM.slice(0, 100).map((c, i) => (
+                    <tr key={i} className="hover:bg-indigo-50/30 transition-colors">
+                      <td className="p-6 font-black text-slate-800">{c.name}</td>
+                      <td className="p-6 text-slate-500 font-mono text-xs" dir="ltr">{c.mobile}</td>
+                      <td className="p-6 font-black text-center text-indigo-600 text-lg">{c.orderCount}</td>
+                      <td className="p-6 font-black text-emerald-600">{c.totalSpend.toLocaleString()} ﷼</td>
+                      <td className="p-6 text-xs text-slate-500 font-bold">{c.lastOrder} <span className="block text-[10px] text-slate-400 mt-1">منذ {c.daysSince} يوم</span></td>
+                      <td className="p-6">
+                        <span className={`px-3 py-1.5 rounded-lg text-xs font-black ${c.segment.includes('VIP') ? 'bg-amber-100 text-amber-700' : c.segment.includes('معرض') ? 'bg-orange-100 text-orange-700' : c.segment.includes('منقطع') ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                          {c.segment}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+            {(mode==='orders' ? filteredOrders.length : filteredCRM.length) > 100 && <div className="p-6 text-center text-xs font-bold text-slate-400 border-t border-slate-100">يتم عرض أحدث 100 سجل فقط.</div>}
+          </div>
         </div>
       </div>
     );
@@ -676,82 +1010,6 @@ export default function App() {
     );
   };
 
-  const OrdersAndCRMTab = ({ mode = 'orders' }) => {
-    const [searchTerm, setSearchTerm] = useState('');
-    
-    const filteredOrders = useMemo(() => {
-      if(!searchTerm) return orders;
-      return orders.filter(o => (o.reference||'').includes(searchTerm) || (o.customerName||'').includes(searchTerm) || (o.mobile||'').includes(searchTerm));
-    }, [orders, searchTerm]);
-
-    const filteredCRM = useMemo(() => {
-      if(!searchTerm) return customers;
-      return customers.filter(c => c.name.includes(searchTerm) || c.mobile.includes(searchTerm));
-    }, [customers, searchTerm]);
-
-    return (
-      <div className="space-y-6 animate-in fade-in">
-        <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
-          <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-slate-50/50">
-            <div>
-              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">{mode === 'orders' ? <ShoppingBag className="text-indigo-500" size={28}/> : <UsersRound className="text-indigo-500" size={28}/>} {mode === 'orders' ? 'الطلبات' : 'العملاء (CRM)'}</h2>
-              <p className="text-sm text-slate-500 mt-2">{mode === 'orders' ? 'سجل كافة الطلبات الواردة من المتجر.' : 'قاعدة بيانات العملاء وتصنيفهم الذكي.'}</p>
-            </div>
-            <div className="w-full md:w-80 relative">
-              <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input type="text" placeholder="بحث برقم، اسم، أو جوال..." className="w-full pl-4 pr-12 py-3 rounded-2xl border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none bg-white shadow-sm" value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} />
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-sm">
-              <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-widest font-bold">
-                {mode === 'orders' ? (
-                  <tr><th className="p-6 border-b">رقم الطلب</th><th className="p-6 border-b">التاريخ</th><th className="p-6 border-b">العميل</th><th className="p-6 border-b">الجوال</th><th className="p-6 border-b">القناة</th><th className="p-6 border-b">المبلغ</th><th className="p-6 border-b">الحالة</th></tr>
-                ) : (
-                  <tr><th className="p-6 border-b">اسم العميل</th><th className="p-6 border-b">الجوال</th><th className="p-6 border-b text-center">عدد الطلبات</th><th className="p-6 border-b">إجمالي الإنفاق</th><th className="p-6 border-b">آخر طلب</th><th className="p-6 border-b">التصنيف</th></tr>
-                )}
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {mode === 'orders' ? (
-                  filteredOrders.length === 0 ? <tr><td colSpan="7" className="p-12 text-center text-slate-400 font-bold">لا توجد طلبات مطابقة.</td></tr> :
-                  filteredOrders.slice(0, 100).map((o, i) => (
-                    <tr key={i} className="hover:bg-indigo-50/30 transition-colors">
-                      <td className="p-6 font-mono text-slate-500 text-xs">{o.reference}</td>
-                      <td className="p-6 text-xs text-slate-500 font-bold">{o.date}</td>
-                      <td className="p-6 font-black text-slate-800">{o.customerName}</td>
-                      <td className="p-6 text-slate-500 font-mono text-xs" dir="ltr">{o.mobile}</td>
-                      <td className="p-6"><span className="bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg text-[10px] font-bold">{o.channel}</span></td>
-                      <td className="p-6 font-black text-emerald-600">{parseFloat(o.amount||0).toLocaleString()} ﷼</td>
-                      <td className="p-6"><span className={`px-3 py-1.5 rounded-lg text-[10px] font-bold ${o.status === 'مكتمل' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{o.status}</span></td>
-                    </tr>
-                  ))
-                ) : (
-                  filteredCRM.length === 0 ? <tr><td colSpan="6" className="p-12 text-center text-slate-400 font-bold">لا يوجد عملاء.</td></tr> :
-                  filteredCRM.slice(0, 100).map((c, i) => (
-                    <tr key={i} className="hover:bg-indigo-50/30 transition-colors">
-                      <td className="p-6 font-black text-slate-800">{c.name}</td>
-                      <td className="p-6 text-slate-500 font-mono text-xs" dir="ltr">{c.mobile}</td>
-                      <td className="p-6 font-black text-center text-indigo-600 text-lg">{c.orderCount}</td>
-                      <td className="p-6 font-black text-emerald-600">{c.totalSpend.toLocaleString()} ﷼</td>
-                      <td className="p-6 text-xs text-slate-500 font-bold">{c.lastOrder} <span className="block text-[10px] text-slate-400 mt-1">منذ {c.daysSince} يوم</span></td>
-                      <td className="p-6">
-                        <span className={`px-3 py-1.5 rounded-lg text-xs font-black ${c.segment.includes('VIP') ? 'bg-amber-100 text-amber-700' : c.segment.includes('معرض') ? 'bg-orange-100 text-orange-700' : c.segment.includes('منقطع') ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                          {c.segment}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-            {(mode==='orders' ? filteredOrders.length : filteredCRM.length) > 100 && <div className="p-6 text-center text-xs font-bold text-slate-400 border-t border-slate-100">يتم عرض أحدث 100 سجل فقط.</div>}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   const DataAdminTab = () => {
     const [confirmText, setConfirmText] = useState('');
     const [nukeTarget, setNukeTarget] = useState(null); 
@@ -815,207 +1073,434 @@ export default function App() {
     );
   };
 
-  const UploadTab = () => {
-    const fileInputRef = useRef(null);
-    const [importPreview, setImportPreview] = useState(null);
-    const [importMode, setImportMode] = useState('sales');
+  const AdCostsTab = () => {
+    const [date, setDate] = useState(todayStr);
+    const [channel, setChannel] = useState(channelsList[0] || '');
+    const [campaign, setCampaign] = useState('');
+    const [cost, setCost] = useState('');
+    const [note, setNote] = useState('');
 
-    const handleFileUpload = async (e) => {
-      const file = e.target.files[0]; if (!file) return;
-      try {
-        const XLSX = await loadXLSX();
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-          const data = new Uint8Array(event.target.result);
-          const workbook = XLSX.read(data, { type: 'array' });
-          const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
-          if(rows.length < 2) return alert('ملف غير صالح');
+    const handleAdd = async (e) => {
+      e.preventDefault();
+      if (!channel || !cost) return;
 
-          const headers = rows[0].map(h => String(h || ''));
-          const orderIdCol = headers.findIndex(h => h.includes('رقم الطلب') || h.includes('رقم'));
-          const productCol = headers.findIndex(h => h.includes('نوع الطلب') || h.includes('المنتجات') || h.includes('اسم المنتج'));
-          const qtyCol = headers.findIndex(h => h.includes('الكمية') || h.includes('العدد') || h === 'Qty');
-          const paymentCol = headers.findIndex(h => h.includes('طريقة الدفع') || h.includes('الدفع'));
-          const customerCol = headers.findIndex(h => h.includes('اسم العميل') || h.includes('العميل'));
-          const mobileCol = headers.findIndex(h => h.includes('الجوال') || h.includes('هاتف'));
-          const amountCol = headers.findIndex(h => h.includes('إجمالي') || h.includes('المبلغ') || h.includes('مجموع'));
-
-          const parsedOrders = [];
-          const parsedMovementsLocal = [];
-          
-          for (let i = 1; i < rows.length; i++) {
-            const row = rows[i]; if(!row || row.length === 0) continue;
-            let orderId = row[orderIdCol] ? String(row[orderIdCol]).replace(/["']/g, '').replace(/^\uFEFF/, '') : '';
-            if(!orderId) continue;
-
-            let productStr = productCol !== -1 ? String(row[productCol] || '') : '';
-            let paymentStr = paymentCol !== -1 ? String(row[paymentCol] || '') : '';
-            let customerName = customerCol !== -1 ? String(row[customerCol] || 'غير معروف') : 'غير معروف';
-            let mobile = mobileCol !== -1 ? String(row[mobileCol] || '').replace(/[^0-9+]/g, '') : '';
-            let amount = amountCol !== -1 ? parseFloat(row[amountCol]) || 0 : 0;
-            
-            let qty = 1;
-            if (qtyCol !== -1 && row[qtyCol] !== undefined && !isNaN(parseInt(row[qtyCol]))) { qty = parseInt(row[qtyCol]); } 
-            else { const qtyMatch = productStr.match(/Qty:\s*(\d+)/i); if (qtyMatch) qty = parseInt(qtyMatch[1]); }
-
-            let mappedCode = null; let mappedLevel = 'بكج';
-            const skuMatch = productStr.match(/SKU:\s*([a-zA-Z0-9_-]+)/i);
-            
-            if (skuMatch && packages[skuMatch[1]]) { mappedCode = skuMatch[1]; } 
-            else if (productStr.includes('مجموعة سباركل الكاملة') || productStr.includes('مجموعة سبارك الكاملة')) { mappedCode = 'asg002'; } 
-            else if (productStr.includes('بكج اسباركل') || productStr.includes('بكج التأسيس')) { mappedCode = 'asg001'; } 
-            else if (productStr.includes('بكج العساف')) { mappedCode = 'asg003'; } 
-            else if (productStr.includes('بكج الـ 7 عطور')) { mappedCode = 'asg002'; } 
-            else {
-              Object.entries(packages).forEach(([code, pkg]) => { if(productStr.includes(code) || productStr.includes(pkg.name)) mappedCode = code; });
-            }
-            if (!mappedCode) {
-              Object.keys(productDetails).forEach(sku => { if(productStr.includes(sku)) { mappedCode = sku; mappedLevel = 'منتج'; } });
-            }
-            if (!mappedCode) mappedCode = Object.keys(packages)[0] || Object.keys(productDetails)[0];
-
-            let movType = 'بيع آلي (عبر الربط)'; 
-            if (importMode === 'sales') {
-               if (paymentStr.includes('تمارا') || paymentStr.includes('تابي')) movType = 'بيع (تمارا)';
-               else if (paymentStr.includes('عند الاستلام') || paymentStr.includes('الدفع عند الاستلام')) movType = 'بيع (دفع عند الاستلام)';
-               else if (paymentStr !== '') movType = 'بيع (دفع إلكتروني)';
-            } else { movType = 'مرتجع (إلغاء رغبة العميل)'; }
-
-            const channelName = mappedLevel === 'بكج' ? (packages[mappedCode]?.channel || 'عضوي') : 'المنتجات الفردية';
-            
-            parsedOrders.push({ date: todayStr, reference: orderId, customerName, mobile, amount, channel: channelName, status: importMode==='sales'?'مكتمل':'مرتجع' });
-            parsedMovementsLocal.push({ date: todayStr, level: mappedLevel, code: mappedCode, type: movType, quantity: qty, reference: orderId, note: importMode === 'sales' ? 'استيراد مبيعات' : 'استيراد رجيع' });
-          }
-          setImportPreview({ orders: parsedOrders, movements: parsedMovementsLocal });
-          if (fileInputRef.current) fileInputRef.current.value = '';
-        };
-        reader.readAsArrayBuffer(file);
-      } catch (err) { alert('خطأ في القراءة'); }
-    };
-
-    const confirmImport = async () => {
-      if(!importPreview || importPreview.movements.length === 0) return;
       setIsSyncing(true);
       try {
-        const batchSize = 50; 
-        const uniqueOrders = [];
-        const seenRefs = new Set(orders.map(o => o.reference)); // Prevent total duplicates
-        for (const o of importPreview.orders) {
-          if (!seenRefs.has(o.reference)) { seenRefs.add(o.reference); uniqueOrders.push(o); }
-        }
+        const id = `ad_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'adcosts', id), {
+          date,
+          channel: channel.trim(),
+          campaign: campaign.trim(),
+          cost: parseFloat(cost) || 0,
+          note: note.trim(),
+          timestamp: Date.now(),
+        });
 
-        for (let i = 0; i < uniqueOrders.length; i += batchSize) {
-          const chunk = uniqueOrders.slice(i, i + batchSize);
-          const batch = writeBatch(db);
-          chunk.forEach((ord, index) => {
-            const now = Date.now() + index; 
-            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', `ord_${now}_${Math.random().toString(36).slice(2, 6)}`);
-            batch.set(docRef, { ...ord, timestamp: now });
-          });
-          await batch.commit();
-        }
+        setCampaign('');
+        setCost('');
+        setNote('');
+      } catch (err) {
+        console.error(err);
+        alert('حدث خطأ أثناء حفظ تكلفة التسويق');
+      } finally {
+        setIsSyncing(false);
+      }
+    };
 
-        for (let i = 0; i < importPreview.movements.length; i += batchSize) {
-          const chunk = importPreview.movements.slice(i, i + batchSize);
-          const batch = writeBatch(db);
-          chunk.forEach((mov, index) => {
-            const now = Date.now() + index; 
-            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'movements', `mov_${now}_${Math.random().toString(36).slice(2, 6)}`);
-            batch.set(docRef, { ...mov, timestamp: now });
-          });
-          await batch.commit();
-        }
-        
-        alert('تم دمج العمليات وبناء قاعدة العملاء بنجاح!'); setImportPreview(null);
-      } catch (e) { console.error(e); alert('خطأ أثناء الرفع'); } finally { setIsSyncing(false); }
+    const handleDelete = async (id) => {
+      if (!safeConfirm('هل تريد حذف هذا السجل؟')) return;
+      setIsSyncing(true);
+      try {
+        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'adcosts', id));
+      } catch (err) {
+        console.error(err);
+        alert('تعذر حذف السجل');
+      } finally {
+        setIsSyncing(false);
+      }
     };
 
     return (
-      <div className="bg-white p-6 md:p-10 rounded-3xl border border-slate-100 shadow-sm animate-in fade-in">
-        <h2 className="text-2xl font-black text-slate-800 mb-2 flex items-center gap-3"><UploadCloud className="text-indigo-500" size={28}/> استيراد البيانات (ETL Engine)</h2>
-        <p className="text-slate-500 text-sm mb-8">ارفع ملفات سلة لبناء بيانات المخزون، الإيرادات، وقاعدة بيانات العملاء دفعة واحدة.</p>
+      <div className="space-y-6 animate-in fade-in">
+        <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
+          <h2 className="text-2xl font-black text-slate-800 mb-2 flex items-center gap-3">
+            <Megaphone className="text-rose-500" size={28} />
+            التسويق
+          </h2>
+          <p className="text-sm text-slate-500 mb-8">إدارة تكاليف الحملات والقنوات التسويقية لضبط الـ ROI.</p>
 
-        {importPreview ? (
-          <div className="bg-indigo-50 border border-indigo-100 rounded-3xl p-8">
-            <h4 className="font-black text-indigo-900 mb-6 flex items-center gap-2 text-lg"><CheckCircle2/> تأكيد استيراد البيانات</h4>
-            <div className="flex flex-col md:flex-row gap-6 mb-8">
-              <div className="bg-white p-6 rounded-2xl flex-1 text-center shadow-sm border border-indigo-100/50">
-                <span className="block text-4xl font-black text-indigo-600 mb-2">{importPreview.orders.length}</span><span className="text-sm font-bold text-slate-500">طلب (يبني الـ CRM)</span>
-              </div>
-              <div className="bg-white p-6 rounded-2xl flex-1 text-center shadow-sm border border-indigo-100/50">
-                <span className="block text-4xl font-black text-emerald-600 mb-2">{importPreview.movements.length}</span><span className="text-sm font-bold text-slate-500">حركة مخزون ومالية</span>
-              </div>
+          <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
+            <input type="date" className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"
+              value={date} onChange={(e) => setDate(e.target.value)} />
+
+            <input type="text" list="channels-list" placeholder="القناة"
+              className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"
+              value={channel} onChange={(e) => setChannel(e.target.value)} />
+            <datalist id="channels-list">
+              {channelsList.map((c) => <option key={c} value={c} />)}
+            </datalist>
+
+            <input type="text" placeholder="اسم الحملة"
+              className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"
+              value={campaign} onChange={(e) => setCampaign(e.target.value)} />
+
+            <input type="number" placeholder="التكلفة (ريال)"
+              className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"
+              value={cost} onChange={(e) => setCost(e.target.value)} />
+
+            <button type="submit"
+              className="bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl px-5 py-3">
+              إضافة
+            </button>
+
+            <div className="md:col-span-5">
+              <input type="text" placeholder="ملاحظات"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"
+                value={note} onChange={(e) => setNote(e.target.value)} />
             </div>
-            <div className="flex gap-4">
-              <button onClick={confirmImport} disabled={isSyncing} className="flex-1 bg-indigo-600 text-white font-black py-4 rounded-xl hover:bg-indigo-700 shadow-md transition-colors">{isSyncing ? 'جاري المعالجة...' : 'تأكيد واعتماد الرفع'}</button>
-              <button onClick={()=>setImportPreview(null)} disabled={isSyncing} className="bg-white text-slate-700 border font-bold py-4 px-8 rounded-xl hover:bg-slate-50 transition-colors">إلغاء</button>
-            </div>
+          </form>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-right text-sm">
+              <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-widest font-bold">
+                <tr>
+                  <th className="p-4 border-b">التاريخ</th>
+                  <th className="p-4 border-b">القناة</th>
+                  <th className="p-4 border-b">الحملة</th>
+                  <th className="p-4 border-b">التكلفة</th>
+                  <th className="p-4 border-b">ملاحظات</th>
+                  <th className="p-4 border-b">إجراء</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {adCosts.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" className="p-10 text-center text-slate-400 font-bold">لا توجد سجلات تسويق.</td>
+                  </tr>
+                ) : (
+                  adCosts.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="p-4">{item.date}</td>
+                      <td className="p-4 font-bold">{item.channel}</td>
+                      <td className="p-4">{item.campaign || '-'}</td>
+                      <td className="p-4 font-black text-rose-600">{(parseFloat(item.cost) || 0).toLocaleString()} ﷼</td>
+                      <td className="p-4 text-slate-500">{item.note || '-'}</td>
+                      <td className="p-4">
+                        <button
+                          onClick={() => handleDelete(item.id)}
+                          className="text-rose-600 hover:text-rose-800 font-bold"
+                        >
+                          حذف
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
-        ) : (
-          <div className="flex flex-col md:flex-row gap-6 items-center bg-slate-50 p-8 rounded-3xl border border-slate-200 border-dashed">
-            <div className="flex-1 w-full">
-              <label className="flex items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200 cursor-pointer hover:border-indigo-500 transition-colors mb-4 shadow-sm">
-                <input type="radio" name="mode" className="accent-indigo-600 w-5 h-5" checked={importMode==='sales'} onChange={()=>setImportMode('sales')}/>
-                <div><p className="font-black text-slate-800 text-base">مبيعات (تم التوصيل)</p><p className="text-xs font-bold text-slate-500 mt-1">يضيف إيرادات ويبني عملاء</p></div>
-              </label>
-              <label className="flex items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200 cursor-pointer hover:border-rose-500 transition-colors shadow-sm">
-                <input type="radio" name="mode" className="accent-rose-600 w-5 h-5" checked={importMode==='returns'} onChange={()=>setImportMode('returns')}/>
-                <div><p className="font-black text-slate-800 text-base">مرتجعات (دعم فني)</p><p className="text-xs font-bold text-slate-500 mt-1">يخصم إيرادات ويسترد بضاعة</p></div>
-              </label>
-            </div>
-            <div className="w-full md:w-1/2">
-              <input type="file" accept=".csv, .xlsx, .xls" ref={fileInputRef} onChange={handleFileUpload} className="hidden" id="file-upload"/>
-              <label htmlFor="file-upload" className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-6 rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer transition-colors shadow-lg h-full min-h-[160px]">
-                <FileSpreadsheet size={40}/>
-                <span className="text-lg">اختيار ورفع ملف (سلة)</span>
-              </label>
-            </div>
-          </div>
-        )}
+        </div>
       </div>
     );
   };
 
-  const ManualMovementForm = () => {
-    const defaultCode = Object.keys(productDetails)[0] || '';
-    const defaultPkgCode = Object.keys(packages)[0] || '';
-    const [formData, setFormData] = useState({ date: todayStr, level: 'منتج', code: defaultCode, type: MOVEMENT_TYPES[0].id, quantity: 1, reference: '', note: '' });
-    useEffect(() => { setFormData(prev => ({ ...prev, code: prev.level === 'منتج' ? defaultCode : defaultPkgCode })); }, [productDetails, packages, formData.level]);
+  const DefinitionsTab = () => {
+    const [newSku, setNewSku] = useState('');
+    const [newName, setNewName] = useState('');
+    const [newOpeningStock, setNewOpeningStock] = useState('0');
+    const [newOpeningDate, setNewOpeningDate] = useState(todayStr);
+    const [newCost, setNewCost] = useState('0');
+    const [newSellingPrice, setNewSellingPrice] = useState('0');
+    
+    const [editingSku, setEditingSku] = useState(null);
+    const [editData, setEditData] = useState({});
 
-    const handleSubmit = async (e) => {
-      e.preventDefault();
+    const [pkgCode, setPkgCode] = useState('');
+    const [pkgName, setPkgName] = useState('');
+    const [pkgGroup, setPkgGroup] = useState('');
+    const [pkgChannel, setPkgChannel] = useState('');
+    const [pkgPrice, setPkgPrice] = useState('');
+    const [pkgItems, setPkgItems] = useState({});
+    const [itemSelectSku, setItemSelectSku] = useState(Object.keys(productDetails)[0] || '');
+    const [itemSelectQty, setItemSelectQty] = useState(1);
+
+    const [newChannelStr, setNewChannelStr] = useState('');
+
+    const handleAddProduct = () => {
+      const skuTrimmed = newSku.trim();
+      if (!skuTrimmed || productDetails[skuTrimmed]) { alert("SKU غير صالح أو موجود مسبقاً"); return; }
+      const newDetails = { ...productDetails };
+      newDetails[skuTrimmed] = { sku: skuTrimmed, name: newName.trim() || skuTrimmed, openingStock: parseInt(newOpeningStock) || 0, openingDate: newOpeningDate || todayStr, unitCost: parseFloat(newCost) || 0, sellingPrice: parseFloat(newSellingPrice) || 0 };
+      updateSettingsInCloud(newDetails, packages, channelsList);
+      setNewSku(''); setNewName(''); setNewOpeningStock('0'); setNewCost('0'); setNewSellingPrice('0');
+    };
+
+    const handleSaveEditProduct = () => {
+      const newDetails = { ...productDetails };
+      newDetails[editingSku] = { ...newDetails[editingSku], name: editData.name, openingStock: parseInt(editData.openingStock) || 0, openingDate: editData.openingDate, unitCost: parseFloat(editData.unitCost) || 0, sellingPrice: parseFloat(editData.sellingPrice) || 0 };
+      updateSettingsInCloud(newDetails, packages, channelsList);
+      setEditingSku(null);
+    };
+
+    const handleDeleteProduct = (sku) => {
+      if(safeConfirm(`هل أنت متأكد من حذف ${sku}؟`)) {
+        const newDetails = { ...productDetails }; delete newDetails[sku];
+        updateSettingsInCloud(newDetails, packages, channelsList);
+      }
+    };
+
+    const handleAddPackageItem = () => {
+      if (!itemSelectSku) return;
+      setPkgItems(prev => ({ ...prev, [itemSelectSku]: (prev[itemSelectSku] || 0) + parseInt(itemSelectQty) }));
+      setItemSelectQty(1);
+    };
+
+    const handleRemovePackageItem = (sku) => { const newItems = { ...pkgItems }; delete newItems[sku]; setPkgItems(newItems); };
+
+    const handleAddPackage = () => {
+      if (!pkgCode.trim() || !pkgName.trim() || Object.keys(pkgItems).length === 0) { alert("أكمل بيانات البكج"); return; }
+      const newPackages = { ...packages, [pkgCode.trim()]: { name: pkgName.trim(), group: pkgGroup.trim() || pkgName.trim(), channel: pkgChannel.trim() || 'عام', price: parseFloat(pkgPrice) || 0, items: pkgItems } };
+      updateSettingsInCloud(productDetails, newPackages, channelsList);
+      setPkgCode(''); setPkgName(''); setPkgGroup(''); setPkgChannel(''); setPkgPrice(''); setPkgItems({});
+    };
+
+    const handleAddChannel = () => {
+      if(!newChannelStr.trim() || channelsList.includes(newChannelStr.trim())) return;
+      updateSettingsInCloud(productDetails, packages, [...channelsList, newChannelStr.trim()]);
+      setNewChannelStr('');
+    };
+    const handleRemoveChannel = (ch) => {
+      if(safeConfirm('حذف القناة؟')) updateSettingsInCloud(productDetails, packages, channelsList.filter(c => c !== ch));
+    };
+
+    return (
+      <div className="space-y-6 animate-in fade-in pb-10">
+        
+        {/* --- المنتجات --- */}
+        <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm relative">
+           {isSyncing && <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center rounded-3xl z-10"><Loader2 className="animate-spin text-indigo-600" size={40} /></div>}
+           <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-3 border-b border-slate-100 pb-4">
+             <Package size={24} className="text-blue-500"/> التأسيس: المنتجات (SKUs)
+           </h3>
+           <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl mb-6 text-xs text-amber-800 font-bold flex items-center gap-3">
+             <AlertTriangle size={16} className="text-amber-600 shrink-0"/> النظام لن يحسب الحركات التي تسبق "تاريخ الافتتاح" لمنع التكرار!
+           </div>
+
+           <div className="grid grid-cols-1 md:grid-cols-7 gap-3 bg-slate-50 p-5 rounded-2xl border border-slate-100 mb-8">
+             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">SKU</label><input type="text" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={newSku} onChange={e=>setNewSku(e.target.value)} /></div>
+             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">الاسم</label><input type="text" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={newName} onChange={e=>setNewName(e.target.value)} /></div>
+             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">افتتاحي</label><input type="number" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm text-blue-600" value={newOpeningStock} onChange={e=>setNewOpeningStock(e.target.value)} /></div>
+             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">تاريخ</label><input type="date" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={newOpeningDate} onChange={e=>setNewOpeningDate(e.target.value)} /></div>
+             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">تكلفة</label><input type="number" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm text-orange-600 focus:ring-2 ring-orange-500" value={newCost} onChange={e=>setNewCost(e.target.value)} /></div>
+             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">بيع</label><input type="number" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm text-emerald-600 focus:ring-2 ring-emerald-500" value={newSellingPrice} onChange={e=>setNewSellingPrice(e.target.value)} /></div>
+             <div className="flex items-end"><button onClick={handleAddProduct} className="w-full bg-blue-600 text-white p-2.5 rounded-xl text-sm font-black hover:bg-blue-700 shadow-sm transition-colors">إضافة</button></div>
+           </div>
+
+           <div className="overflow-x-auto">
+             <table className="w-full text-right text-sm">
+               <thead className="bg-slate-100 text-slate-500 text-[10px] uppercase tracking-widest font-black">
+                 <tr><th className="p-4 border-b rounded-tr-xl">SKU</th><th className="p-4 border-b">المنتج</th><th className="p-4 border-b">افتتاحي</th><th className="p-4 border-b">التاريخ</th><th className="p-4 border-b">التكلفة</th><th className="p-4 border-b">البيع</th><th className="p-4 border-b text-center rounded-tl-xl">إجراء</th></tr>
+               </thead>
+               <tbody className="divide-y divide-slate-50">
+                 {Object.values(productDetails).map(p => (
+                   <tr key={p.sku} className="hover:bg-slate-50 transition-colors">
+                     <td className="p-4 font-mono font-bold text-slate-800 text-xs">{p.sku}</td>
+                     {editingSku === p.sku ? (
+                       <>
+                         <td className="p-2"><input type="text" className="w-full p-2 text-xs border rounded-lg" value={editData.name} onChange={e=>setEditData({...editData, name: e.target.value})} /></td>
+                         <td className="p-2"><input type="number" className="w-20 p-2 text-xs border rounded-lg font-bold text-blue-600" value={editData.openingStock} onChange={e=>setEditData({...editData, openingStock: e.target.value})} /></td>
+                         <td className="p-2"><input type="date" className="w-32 p-2 text-xs border rounded-lg" value={editData.openingDate} onChange={e=>setEditData({...editData, openingDate: e.target.value})} /></td>
+                         <td className="p-2"><input type="number" className="w-20 p-2 text-xs border rounded-lg font-bold text-orange-600" value={editData.unitCost} onChange={e=>setEditData({...editData, unitCost: e.target.value})} /></td>
+                         <td className="p-2"><input type="number" className="w-20 p-2 text-xs border rounded-lg font-bold text-emerald-600" value={editData.sellingPrice} onChange={e=>setEditData({...editData, sellingPrice: e.target.value})} /></td>
+                         <td className="p-2 text-center flex justify-center gap-2">
+                           <button onClick={handleSaveEditProduct} className="bg-emerald-500 text-white p-2 rounded-lg shadow-sm"><Check size={14}/></button>
+                           <button onClick={() => setEditingSku(null)} className="bg-slate-300 text-slate-700 p-2 rounded-lg shadow-sm"><X size={14}/></button>
+                         </td>
+                       </>
+                     ) : (
+                       <>
+                         <td className="p-4 font-bold text-slate-700">{p.name}</td>
+                         <td className="p-4 font-black text-blue-600 text-lg">{p.openingStock}</td>
+                         <td className="p-4 text-xs text-slate-500 font-bold">{p.openingDate}</td>
+                         <td className="p-4 font-black text-orange-600">{p.unitCost} ﷼</td>
+                         <td className="p-4 font-black text-emerald-600">{p.sellingPrice || 0} ﷼</td>
+                         <td className="p-4 text-center flex justify-center gap-3">
+                           <button onClick={() => { setEditingSku(p.sku); setEditData(p); }} className="text-slate-400 hover:text-blue-500 transition-colors"><Edit2 size={16}/></button>
+                           <button onClick={() => handleDeleteProduct(p.sku)} className="text-slate-400 hover:text-rose-500 transition-colors"><Trash2 size={16}/></button>
+                         </td>
+                       </>
+                     )}
+                   </tr>
+                 ))}
+               </tbody>
+             </table>
+           </div>
+        </div>
+
+        {/* --- القنوات التسويقية --- */}
+        <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm">
+          <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-3 border-b border-slate-100 pb-4"><Target size={24} className="text-indigo-500"/> قنوات التسويق (Channels)</h3>
+          <div className="flex flex-wrap gap-3 mb-6">
+            {channelsList.map(ch => (
+              <div key={ch} className="bg-slate-100 text-slate-700 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 border border-slate-200">
+                {ch} <button onClick={()=>handleRemoveChannel(ch)} className="text-slate-400 hover:text-rose-500"><X size={14}/></button>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-3 max-w-sm">
+            <input type="text" placeholder="اسم القناة الجديدة..." className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-sm focus:ring-2 ring-indigo-500" value={newChannelStr} onChange={e=>setNewChannelStr(e.target.value)}/>
+            <button onClick={handleAddChannel} className="bg-indigo-600 text-white px-6 rounded-xl font-black text-sm shadow-sm hover:bg-indigo-700">إضافة</button>
+          </div>
+        </div>
+
+        {/* --- البكجات --- */}
+        <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm relative">
+           <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-3 border-b border-slate-100 pb-4">
+             <PackageOpen size={24} className="text-purple-500"/> إدارة البكجات والتسعير
+           </h3>
+
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
+             {Object.entries(packages).map(([code, pkg]) => (
+               <div key={code} className="bg-white border-2 border-slate-100 rounded-2xl p-6 flex flex-col relative group hover:border-purple-200 transition-colors shadow-sm">
+                 <div className="absolute top-4 left-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                   <button onClick={() => { setPkgCode(code); setPkgName(pkg.name); setPkgGroup(pkg.group); setPkgChannel(pkg.channel); setPkgPrice(pkg.price); setPkgItems({...pkg.items}); }} className="text-slate-400 hover:text-blue-500 bg-white rounded-lg p-1.5 shadow-sm border"><Edit2 size={16}/></button>
+                   <button onClick={() => handleDeletePackage(code)} className="text-slate-400 hover:text-rose-500 bg-white rounded-lg p-1.5 shadow-sm border"><Trash2 size={16}/></button>
+                 </div>
+
+                 <div className="font-black text-lg text-slate-800 mb-2 pr-6 truncate">{pkg.name}</div>
+                 <div className="flex items-center gap-3 mb-4">
+                    <div className="text-xs text-indigo-600 font-mono bg-indigo-50 px-2.5 py-1 rounded-lg font-bold">{code}</div>
+                    <div className="text-[11px] text-emerald-700 font-black bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">{pkg.price} ﷼</div>
+                 </div>
+                 
+                 <div className="space-y-2 mb-5 flex-1">
+                   <div className="flex justify-between items-center text-xs font-bold text-slate-500"><span>المجموعة:</span> <span className="text-slate-700 truncate">{pkg.group}</span></div>
+                   <div className="flex justify-between items-center text-xs font-bold text-slate-500"><span>القناة:</span> <span className="text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md truncate">{pkg.channel}</span></div>
+                 </div>
+
+                 <div className="border-t border-slate-100 pt-4">
+                   <div className="flex flex-wrap gap-1.5">
+                     {Object.entries(pkg.items).map(([sku, qty]) => (
+                       <span key={sku} className="text-[10px] font-black bg-slate-50 border border-slate-200 text-slate-600 px-2 py-1 rounded-lg flex items-center gap-1.5">
+                         <span dir="ltr">{sku}</span> <span className="text-indigo-500 text-[10px]">x{qty}</span>
+                       </span>
+                     ))}
+                   </div>
+                 </div>
+               </div>
+             ))}
+           </div>
+
+           <div id="package-form" className={`rounded-2xl border-2 p-6 md:p-8 ${Object.keys(packages).includes(pkgCode.trim()) ? 'bg-purple-50 border-purple-200' : 'bg-slate-50 border-slate-200 border-dashed'}`}>
+             <h4 className="font-black text-lg mb-6 flex items-center gap-2 text-slate-800"><Plus size={20}/> {Object.keys(packages).includes(pkgCode.trim()) ? 'تحديث بيانات البكج' : 'إنشاء بكج جديد'}</h4>
+             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+               <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">كود البكج</label><input type="text" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm font-mono" value={pkgCode} onChange={e=>setPkgCode(e.target.value)} disabled={Object.keys(packages).includes(pkgCode.trim())} /></div>
+               <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">اسم البكج</label><input type="text" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={pkgName} onChange={e=>setPkgName(e.target.value)} /></div>
+               <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">السعر (للأرباح)</label><input type="number" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-black text-sm text-emerald-600 focus:ring-2 ring-emerald-500" value={pkgPrice} onChange={e=>setPkgPrice(e.target.value)} /></div>
+               <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">المجموعة</label><input type="text" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={pkgGroup} onChange={e=>setPkgGroup(e.target.value)} /></div>
+               <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">القناة / المشهور</label>
+                  <input type="text" list="pkg-channels" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={pkgChannel} onChange={e=>setPkgChannel(e.target.value)} />
+                  <datalist id="pkg-channels">{channelsList.map(c=><option key={c} value={c}/>)}</datalist>
+               </div>
+
+               <div className="md:col-span-5 bg-white p-5 rounded-2xl border border-slate-200 mt-4 shadow-sm">
+                 <label className="block text-xs font-black text-slate-800 mb-4 flex items-center gap-2"><Package size={16}/> محتويات البكج (SKUs):</label>
+                 <div className="flex flex-wrap items-center gap-3 mb-5">
+                   <select className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold flex-1 outline-none focus:ring-2 ring-indigo-500" value={itemSelectSku} onChange={e=>setItemSelectSku(e.target.value)}>
+                     {Object.keys(productDetails).map(sku => <option key={sku} value={sku}>{sku} - {productDetails[sku].name}</option>)}
+                   </select>
+                   <input type="number" min="1" className="w-24 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black text-center outline-none" value={itemSelectQty} onChange={e=>setItemSelectQty(e.target.value)} />
+                   <button onClick={handleAddPackageItem} className="bg-slate-800 text-white px-6 py-3 rounded-xl text-sm font-black hover:bg-slate-900 transition-colors shadow-md">إدراج</button>
+                 </div>
+                 {Object.keys(pkgItems).length > 0 && (
+                   <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-100">
+                     {Object.entries(pkgItems).map(([sku, qty]) => (
+                       <div key={sku} className="flex items-center gap-2 bg-indigo-50 text-indigo-900 px-3 py-2 rounded-xl text-xs font-bold border border-indigo-100">
+                         <span dir="ltr">{sku}</span> <span className="bg-white px-2 py-0.5 rounded-lg text-indigo-500 shadow-sm">x{qty}</span>
+                         <button onClick={()=>handleRemovePackageItem(sku)} className="text-indigo-300 hover:text-rose-500 transition-colors ml-1"><X size={14}/></button>
+                       </div>
+                     ))}
+                   </div>
+                 )}
+               </div>
+
+               <div className="md:col-span-5 mt-4 flex gap-3">
+                 <button onClick={handleAddPackage} className="flex-1 bg-purple-600 text-white p-4 rounded-xl font-black text-base shadow-md hover:bg-purple-700 transition-colors">حفظ واعتماد البكج</button>
+                 {Object.keys(packages).includes(pkgCode.trim()) && (
+                   <button onClick={() => {setPkgCode(''); setPkgName(''); setPkgGroup(''); setPkgChannel(''); setPkgPrice(''); setPkgItems({});}} className="bg-white text-slate-700 p-4 rounded-xl font-bold border border-slate-200 hover:bg-slate-50 transition-colors">إلغاء التعديل</button>
+                 )}
+               </div>
+             </div>
+           </div>
+        </div>
+      </div>
+    );
+  };
+
+  const UsersManagementTab = () => {
+    const [newUserEmail, setNewUserEmail] = useState('');
+    const [newUserRole, setNewUserRole] = useState('viewer');
+
+    const handleAddPermission = async (e) => {
+      e.preventDefault(); if(!newUserEmail.trim()) return;
       setIsSyncing(true);
       try {
-        const movementId = `mov_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'movements', movementId), { ...formData, timestamp: Date.now() });
-        setFormData({ ...formData, quantity: 1, reference: '', note: '' });
-        alert('تم التسجيل بنجاح');
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'permissions'), { ...permissions, [newUserEmail.trim().toLowerCase()]: newUserRole });
+        setNewUserEmail('');
       } catch(e) { alert('خطأ'); } finally { setIsSyncing(false); }
     };
 
+    const handleRemovePermission = async (emailToRemove) => {
+      if(emailToRemove === user.email) return alert('لا يمكنك إزالة نفسك!');
+      if(safeConfirm(`حذف ${emailToRemove}؟`)) {
+        const newPerms = { ...permissions }; delete newPerms[emailToRemove];
+        setIsSyncing(true);
+        try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'permissions'), newPerms); } 
+        catch(e) { console.error(e); } finally { setIsSyncing(false); }
+      }
+    };
+
     return (
-      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm animate-in fade-in mt-6">
-        <h3 className="text-xl font-black mb-6 text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-4"><Plus className="text-indigo-500"/> إدخال مخزون يدوي (طوارئ / جرد)</h3>
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-5">
-          <div><label className="block text-xs font-bold mb-1.5 text-slate-500 uppercase tracking-widest">التاريخ</label><input type="date" required className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none font-bold text-sm" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} /></div>
-          <div><label className="block text-xs font-bold mb-1.5 text-slate-500 uppercase tracking-widest">المستوى</label><select className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none font-bold text-sm" value={formData.level} onChange={e => setFormData({...formData, level: e.target.value})}><option value="منتج">منتج فردي</option><option value="بكج">بكج / عرض</option></select></div>
-          <div>
-            <label className="block text-xs font-bold mb-1.5 text-slate-500 uppercase tracking-widest">الكود</label>
-            <select className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none font-bold text-sm" value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})} required>
-              {formData.level === 'منتج' ? Object.keys(productDetails).map(p => <option key={p} value={p}>{p} - {productDetails[p].name}</option>) : Object.keys(packages).map(p => <option key={p} value={p}>{p} - {packages[p].name}</option>)}
-            </select>
-          </div>
-          <div><label className="block text-xs font-bold mb-1.5 text-slate-500 uppercase tracking-widest">النوع</label><select className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none font-bold text-sm" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>{MOVEMENT_TYPES.map(t => <option key={t.id} value={t.id}>{t.id}</option>)}</select></div>
-          <div><label className="block text-xs font-bold mb-1.5 text-slate-500 uppercase tracking-widest">الكمية</label><input type="number" min="1" required className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none font-bold text-sm" value={formData.quantity} onChange={e => setFormData({...formData, quantity: e.target.value})} /></div>
-          <div><label className="block text-xs font-bold mb-1.5 text-slate-500 uppercase tracking-widest">المرجع</label><input type="text" className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none font-bold text-sm" value={formData.reference} onChange={e => setFormData({...formData, reference: e.target.value})} /></div>
-          <div className="md:col-span-2"><label className="block text-xs font-bold mb-1.5 text-slate-500 uppercase tracking-widest">ملاحظات</label><input type="text" className="w-full p-3 bg-slate-50 rounded-xl border-none outline-none font-bold text-sm" value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})} /></div>
-          <div className="md:col-span-4 mt-2"><button type="submit" disabled={isSyncing} className="w-full bg-slate-800 text-white p-4 rounded-xl font-black hover:bg-slate-900 transition-colors shadow-md">تنفيذ الحركة</button></div>
-        </form>
+      <div className="space-y-6 animate-in fade-in max-w-4xl mx-auto">
+        <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm relative">
+           {isSyncing && <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center z-10 rounded-3xl"><Loader2 className="animate-spin text-blue-600" size={40} /></div>}
+           <div className="flex items-center gap-4 mb-8 border-b border-slate-100 pb-6">
+             <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl"><Shield size={28} /></div>
+             <div>
+               <h3 className="text-2xl font-black text-slate-800">صلاحيات الوصول (Access Control)</h3>
+               <p className="text-sm text-slate-500 mt-1">تأكد من إنشاء الحسابات أولاً في منصة Firebase قبل منحها الصلاحيات هنا.</p>
+             </div>
+           </div>
+
+           <form onSubmit={handleAddPermission} className="flex flex-col md:flex-row gap-4 mb-10 bg-slate-50 p-6 rounded-2xl border border-slate-100">
+             <div className="flex-1"><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">البريد الإلكتروني</label><input type="email" required placeholder="emp@domain.com" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 ring-blue-500 text-sm text-left font-mono font-bold" dir="ltr" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} /></div>
+             <div className="md:w-64"><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">الرتبة (Role)</label><select className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 ring-blue-500 text-sm font-bold" value={newUserRole} onChange={e => setNewUserRole(e.target.value)}><option value="super_admin">Super Admin (كامل)</option><option value="admin">Admin (بدون النظام والقرارات)</option><option value="editor">Editor (إدخال فقط)</option><option value="viewer">Viewer (لوحة فقط)</option></select></div>
+             <div className="flex items-end"><button type="submit" disabled={isSyncing} className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-black text-sm transition-colors shadow-md">منح الصلاحية</button></div>
+           </form>
+
+           <div className="overflow-x-auto">
+             <table className="w-full text-right text-sm">
+               <thead className="bg-slate-100 text-slate-500 text-xs uppercase tracking-widest">
+                 <tr><th className="p-4 border-b rounded-tr-xl">المستخدم</th><th className="p-4 border-b">الرتبة</th><th className="p-4 border-b text-center rounded-tl-xl">إجراء</th></tr>
+               </thead>
+               <tbody className="divide-y divide-slate-50">
+                 {Object.entries(permissions).map(([email, role]) => (
+                   <tr key={email} className="hover:bg-slate-50 transition-colors">
+                     <td className="p-4 font-mono font-bold text-slate-700 text-xs" dir="ltr">{email} {email === user.email && <span className="text-[10px] text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-lg ml-2 border border-emerald-100">أنت</span>}</td>
+                     <td className="p-4"><span className={`px-3 py-1.5 rounded-lg text-[10px] font-black ${role==='super_admin'?'bg-purple-100 text-purple-700':role==='admin'?'bg-blue-100 text-blue-700':role==='editor'?'bg-emerald-100 text-emerald-700':'bg-slate-200 text-slate-700'}`}>{role}</span></td>
+                     <td className="p-4 text-center"><button onClick={() => handleRemovePermission(email)} className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={18} /></button></td>
+                   </tr>
+                 ))}
+               </tbody>
+             </table>
+           </div>
+        </div>
       </div>
     );
   };
 
-  // --- Main Render Switch ---
+  // --- 6. AUTH GUARDS & RENDER ---
 
   if (authError) {
     return (

@@ -250,7 +250,6 @@ function App() {
       );
       return onSnapshot(q, (snap) => {
         const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        // sorting desc already handled by query, but we can ensure date sorting if needed
         setter(data);
       }, (error) => {
         console.error(`Error loading ${colName}:`, error);
@@ -417,9 +416,8 @@ function App() {
       let channel = 'المنتجات الفردية';
       let revenue = 0, cost = 0;
 
-      if (m.level === 'بكج') {
+      if (m.level === 'بكج' && packages[m.code]) {
         const pkg = packages[m.code];
-        if (!pkg) return;
         channel = pkg.channel || 'غير محدد';
         revenue = (pkg.price || 0) * m.qty;
         let pkgCogs = 0;
@@ -429,11 +427,9 @@ function App() {
           });
         }
         cost = pkgCogs * m.qty;
-      } else if (m.level === 'منتج') {
-        const p = productDetails[m.code];
-        if (!p) return;
-        revenue = (p.sellingPrice || 0) * m.qty;
-        cost = (p.unitCost || 0) * m.qty;
+      } else if (m.level === 'منتج' && productDetails[m.code]) {
+        revenue = (productDetails[m.code].sellingPrice || 0) * m.qty;
+        cost = (productDetails[m.code].unitCost || 0) * m.qty;
       }
 
       if (!result[channel]) result[channel] = { revenue: 0, cogs: 0, adCost: 0, netSales: 0, returns: 0 };
@@ -702,230 +698,6 @@ function App() {
     );
   };
 
-  const UploadTab = () => {
-    const fileInputRef = useRef(null);
-    const [importPreview, setImportPreview] = useState(null);
-    const [importMode, setImportMode] = useState('sales');
-
-    const handleFileUpload = async (e) => {
-      const file = e.target.files[0]; if (!file) return;
-      try {
-        const XLSX = await loadXLSX();
-        const reader = new FileReader();
-        
-        // خوارزمية متقدمة لقراءة التاريخ بجميع أشكاله
-        const normalizeDate = (value) => {
-          if (!value) return todayStr;
-
-          if (typeof value === 'number' && window.XLSX) {
-            try {
-              const date = window.XLSX.SSF.parse_date_code(value);
-              if (date) {
-                const mm = String(date.m).padStart(2, '0');
-                const dd = String(date.d).padStart(2, '0');
-                return `${date.y}-${mm}-${dd}`;
-              }
-            } catch (e) {
-              console.error(e);
-            }
-          }
-
-          const strVal = String(value).trim();
-
-          const isoMatch = strVal.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-          if (isoMatch) return strVal;
-
-          const slashMatch = strVal.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-          if (slashMatch) {
-            const dd = String(slashMatch[1]).padStart(2, '0');
-            const mm = String(slashMatch[2]).padStart(2, '0');
-            const yyyy = slashMatch[3];
-            return `${yyyy}-${mm}-${dd}`;
-          }
-
-          const parsed = new Date(strVal);
-          if (!isNaN(parsed.getTime())) {
-            return parsed.toISOString().split('T')[0];
-          }
-
-          return todayStr;
-        };
-
-        reader.onload = async (event) => {
-          const data = new Uint8Array(event.target.result);
-          const workbook = XLSX.read(data, { type: 'array' });
-          const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
-          if(rows.length < 2) return alert('ملف غير صالح');
-
-          const headers = rows[0].map(h => String(h || ''));
-          const dateCol = headers.findIndex(h => h.includes('التاريخ') || h.includes('تاريخ الطلب') || h.includes('Date') || h.includes('date'));
-          const orderIdCol = headers.findIndex(h => h.includes('رقم الطلب') || h.includes('رقم'));
-          const productCol = headers.findIndex(h => h.includes('نوع الطلب') || h.includes('المنتجات') || h.includes('اسم المنتج'));
-          const qtyCol = headers.findIndex(h => h.includes('الكمية') || h.includes('العدد') || h === 'Qty');
-          const paymentCol = headers.findIndex(h => h.includes('طريقة الدفع') || h.includes('الدفع'));
-          const customerCol = headers.findIndex(h => h.includes('اسم العميل') || h.includes('العميل'));
-          const mobileCol = headers.findIndex(h => h.includes('الجوال') || h.includes('هاتف'));
-          const amountCol = headers.findIndex(h => h.includes('إجمالي') || h.includes('المبلغ') || h.includes('مجموع'));
-
-          const parsedOrders = [];
-          const parsedMovementsLocal = [];
-          
-          for (let i = 1; i < rows.length; i++) {
-            const row = rows[i]; if(!row || row.length === 0) continue;
-            let orderId = row[orderIdCol] ? String(row[orderIdCol]).replace(/["']/g, '').replace(/^\uFEFF/, '') : '';
-            if(!orderId) continue;
-
-            const orderDate = dateCol !== -1 ? normalizeDate(row[dateCol]) : todayStr;
-
-            let productStr = productCol !== -1 ? String(row[productCol] || '') : '';
-            let paymentStr = paymentCol !== -1 ? String(row[paymentCol] || '') : '';
-            let customerName = customerCol !== -1 ? String(row[customerCol] || 'غير معروف') : 'غير معروف';
-            let mobile = mobileCol !== -1 ? String(row[mobileCol] || '').replace(/[^0-9+]/g, '') : '';
-            let amount = amountCol !== -1 ? parseFloat(row[amountCol]) || 0 : 0;
-            
-            let qty = 1;
-            if (qtyCol !== -1 && row[qtyCol] !== undefined && !isNaN(parseInt(row[qtyCol]))) { qty = parseInt(row[qtyCol]); } 
-            else { const qtyMatch = productStr.match(/Qty:\s*(\d+)/i); if (qtyMatch) qty = parseInt(qtyMatch[1]); }
-
-            let mappedCode = null; let mappedLevel = 'بكج';
-            const skuMatch = productStr.match(/SKU:\s*([a-zA-Z0-9_-]+)/i);
-            
-            if (skuMatch && packages[skuMatch[1]]) { mappedCode = skuMatch[1]; } 
-            else if (productStr.includes('مجموعة سباركل الكاملة') || productStr.includes('مجموعة سبارك الكاملة')) { mappedCode = 'asg002'; } 
-            else if (productStr.includes('بكج اسباركل') || productStr.includes('بكج التأسيس')) { mappedCode = 'asg001'; } 
-            else if (productStr.includes('بكج العساف')) { mappedCode = 'asg003'; } 
-            else if (productStr.includes('بكج الـ 7 عطور')) { mappedCode = 'asg002'; } 
-            else {
-              Object.entries(packages).forEach(([code, pkg]) => { if(productStr.includes(code) || productStr.includes(pkg.name)) mappedCode = code; });
-            }
-            if (!mappedCode) {
-              Object.keys(productDetails).forEach(sku => { if(productStr.includes(sku)) { mappedCode = sku; mappedLevel = 'منتج'; } });
-            }
-            if (!mappedCode) {
-              const firstPackageCode = Object.keys(packages)[0];
-              const firstProductCode = Object.keys(productDetails)[0];
-              mappedCode = firstPackageCode || firstProductCode;
-            }
-            if (!mappedCode) continue; // الحماية من الـ Bugs الصامتة
-
-            let movType = 'بيع آلي (عبر الربط)'; 
-            if (importMode === 'sales') {
-               if (paymentStr.includes('تمارا') || paymentStr.includes('تابي')) movType = 'بيع (تمارا)';
-               else if (paymentStr.includes('عند الاستلام') || paymentStr.includes('الدفع عند الاستلام')) movType = 'بيع (دفع عند الاستلام)';
-               else if (paymentStr !== '') movType = 'بيع (دفع إلكتروني)';
-            } else { movType = 'مرتجع (إلغاء رغبة العميل)'; }
-
-            const channelName = mappedLevel === 'بكج' ? (packages[mappedCode]?.channel || 'عضوي') : 'المنتجات الفردية';
-            
-            parsedOrders.push({ date: orderDate, reference: orderId, customerName, mobile, amount, channel: channelName, status: importMode==='sales'?'مكتمل':'مرتجع' });
-            parsedMovementsLocal.push({ date: orderDate, level: mappedLevel, code: mappedCode, type: movType, quantity: qty, reference: orderId, note: importMode === 'sales' ? 'استيراد مبيعات' : 'استيراد رجيع' });
-          }
-          setImportPreview({ orders: parsedOrders, movements: parsedMovementsLocal });
-          if (fileInputRef.current) fileInputRef.current.value = '';
-        };
-        reader.readAsArrayBuffer(file);
-      } catch (err) { alert('خطأ في القراءة'); }
-    };
-
-    const confirmImport = async () => {
-      if(!importPreview || importPreview.movements.length === 0) return;
-      setIsSyncing(true);
-      try {
-        const batchSize = 50; 
-        const dbOrderRefs = new Set([ ...orders.map(o => o.reference) ]);
-        
-        const uniqueOrders = [];
-        const seenNewRefs = new Set(); 
-
-        for (const o of importPreview.orders) {
-          if (dbOrderRefs.has(o.reference) || seenNewRefs.has(o.reference)) continue;
-          seenNewRefs.add(o.reference);
-          uniqueOrders.push(o);
-        }
-
-        const uniqueMovements = [];
-        for (const m of importPreview.movements) {
-          if (dbOrderRefs.has(m.reference)) continue;
-          uniqueMovements.push(m);
-        }
-
-        const skippedOrders = importPreview.orders.length - uniqueOrders.length;
-        const skippedMovements = importPreview.movements.length - uniqueMovements.length;
-
-        const baseNow = Date.now();
-        for (let i = 0; i < uniqueOrders.length; i += batchSize) {
-          const chunk = uniqueOrders.slice(i, i + batchSize);
-          const batch = writeBatch(db);
-          chunk.forEach((ord, index) => {
-            const now = baseNow + i + index; 
-            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', `ord_${now}_${Math.random().toString(36).slice(2, 6)}`);
-            batch.set(docRef, { ...ord, timestamp: now });
-          });
-          await batch.commit();
-        }
-
-        for (let i = 0; i < uniqueMovements.length; i += batchSize) {
-          const chunk = uniqueMovements.slice(i, i + batchSize);
-          const batch = writeBatch(db);
-          chunk.forEach((mov, index) => {
-            const now = baseNow + i + index; 
-            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'movements', `mov_${now}_${Math.random().toString(36).slice(2, 6)}`);
-            batch.set(docRef, { ...mov, timestamp: now });
-          });
-          await batch.commit();
-        }
-        
-        alert(`تم رفع ${uniqueOrders.length} طلب و ${uniqueMovements.length} حركة بنجاح.\nتم تجاهل ${skippedOrders} طلب مكرر و ${skippedMovements} حركة مرتبطة بطلبات مكررة.`); 
-        setImportPreview(null);
-      } catch (e) { console.error(e); alert('خطأ أثناء الرفع'); } finally { setIsSyncing(false); }
-    };
-
-    return (
-      <div className="bg-white p-6 md:p-10 rounded-3xl border border-slate-100 shadow-sm animate-in fade-in">
-        <h2 className="text-2xl font-black text-slate-800 mb-2 flex items-center gap-3"><UploadCloud className="text-indigo-500" size={28}/> استيراد البيانات (ETL Engine)</h2>
-        <p className="text-slate-500 text-sm mb-8">ارفع ملفات سلة لبناء بيانات المخزون، الإيرادات، وقاعدة بيانات العملاء دفعة واحدة.</p>
-
-        {importPreview ? (
-          <div className="bg-indigo-50 border border-indigo-100 rounded-3xl p-8">
-            <h4 className="font-black text-indigo-900 mb-6 flex items-center gap-2 text-lg"><CheckCircle2/> تأكيد استيراد البيانات</h4>
-            <div className="flex flex-col md:flex-row gap-6 mb-8">
-              <div className="bg-white p-6 rounded-2xl flex-1 text-center shadow-sm border border-indigo-100/50">
-                <span className="block text-4xl font-black text-indigo-600 mb-2">{importPreview.orders.length}</span><span className="text-sm font-bold text-slate-500">طلب في الملف</span>
-              </div>
-              <div className="bg-white p-6 rounded-2xl flex-1 text-center shadow-sm border border-indigo-100/50">
-                <span className="block text-4xl font-black text-emerald-600 mb-2">{importPreview.movements.length}</span><span className="text-sm font-bold text-slate-500">حركة مخزون محتملة</span>
-              </div>
-            </div>
-            <div className="flex gap-4">
-              <button onClick={confirmImport} disabled={isSyncing} className="flex-1 bg-indigo-600 text-white font-black py-4 rounded-xl hover:bg-indigo-700 shadow-md transition-colors">{isSyncing ? 'جاري المعالجة...' : 'تأكيد واعتماد الرفع'}</button>
-              <button onClick={()=>setImportPreview(null)} disabled={isSyncing} className="bg-white text-slate-700 border font-bold py-4 px-8 rounded-xl hover:bg-slate-50 transition-colors">إلغاء</button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-col md:flex-row gap-6 items-center bg-slate-50 p-8 rounded-3xl border border-slate-200 border-dashed">
-            <div className="flex-1 w-full">
-              <label className="flex items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200 cursor-pointer hover:border-indigo-500 transition-colors mb-4 shadow-sm">
-                <input type="radio" name="mode" className="accent-indigo-600 w-5 h-5" checked={importMode==='sales'} onChange={()=>setImportMode('sales')}/>
-                <div><p className="font-black text-slate-800 text-base">مبيعات (تم التوصيل)</p><p className="text-xs font-bold text-slate-500 mt-1">يضيف إيرادات ويبني عملاء</p></div>
-              </label>
-              <label className="flex items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200 cursor-pointer hover:border-rose-500 transition-colors shadow-sm">
-                <input type="radio" name="mode" className="accent-rose-600 w-5 h-5" checked={importMode==='returns'} onChange={()=>setImportMode('returns')}/>
-                <div><p className="font-black text-slate-800 text-base">مرتجعات (دعم فني)</p><p className="text-xs font-bold text-slate-500 mt-1">يخصم إيرادات ويسترد بضاعة</p></div>
-              </label>
-            </div>
-            <div className="w-full md:w-1/2">
-              <input type="file" accept=".csv, .xlsx, .xls" ref={fileInputRef} onChange={handleFileUpload} className="hidden" id="file-upload"/>
-              <label htmlFor="file-upload" className="bg-indigo-600 hover:bg-indigo-700 text-white font-black py-6 rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer transition-colors shadow-lg h-full min-h-[160px]">
-                <FileSpreadsheet size={40}/>
-                <span className="text-lg">اختيار ورفع ملف (سلة)</span>
-              </label>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   const OrdersTab = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [channelFilter, setChannelFilter] = useState('all');
@@ -975,7 +747,6 @@ function App() {
     const exportOrdersToExcel = async () => {
       try {
         const XLSX = await loadXLSX();
-  
         const rows = filteredOrders.map(o => ({
           'رقم الطلب': o.reference,
           'التاريخ': o.date,
@@ -985,7 +756,6 @@ function App() {
           'المبلغ': o.amount,
           'الحالة': o.status,
         }));
-  
         const worksheet = XLSX.utils.json_to_sheet(rows);
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, 'Orders');
@@ -1142,55 +912,31 @@ function App() {
 
     const enhancedCustomers = useMemo(() => {
       const cusMap = {};
-
       orders.forEach((o) => {
         if (!o.mobile) return;
-
         if (!cusMap[o.mobile]) {
           cusMap[o.mobile] = {
-            name: o.customerName || 'عميل',
-            mobile: o.mobile,
-            orderCount: 0,
-            totalSpend: 0,
-            firstOrder: o.date || '',
-            lastOrder: o.date || '',
-            city: o.city || '',
-            channels: {},
+            name: o.customerName || 'عميل', mobile: o.mobile, orderCount: 0, totalSpend: 0,
+            firstOrder: o.date || '', lastOrder: o.date || '', city: o.city || '', channels: {},
           };
         }
-
         const c = cusMap[o.mobile];
         c.orderCount += 1;
         c.totalSpend += parseFloat(o.amount) || 0;
-
         if (o.date && (!c.firstOrder || o.date < c.firstOrder)) c.firstOrder = o.date;
         if (o.date && (!c.lastOrder || o.date > c.lastOrder)) c.lastOrder = o.date;
-
-        if (o.channel) {
-          c.channels[o.channel] = (c.channels[o.channel] || 0) + 1;
-        }
+        if (o.channel) c.channels[o.channel] = (c.channels[o.channel] || 0) + 1;
       });
 
       return Object.values(cusMap).map((c) => {
-        const daysSince = c.lastOrder
-          ? Math.floor((new Date() - new Date(c.lastOrder)) / (1000 * 60 * 60 * 24))
-          : 999;
-
-        const favoriteChannel =
-          Object.entries(c.channels || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || 'غير محدد';
-
+        const daysSince = c.lastOrder ? Math.floor((new Date() - new Date(c.lastOrder)) / (1000 * 60 * 60 * 24)) : 999;
+        const favoriteChannel = Object.entries(c.channels || {}).sort((a, b) => b[1] - a[1])[0]?.[0] || 'غير محدد';
         let segment = 'نشط';
         if (c.totalSpend >= 1000 || c.orderCount >= 3) segment = 'VIP 🌟';
         else if (daysSince > 60) segment = 'منقطع ⚠️';
         else if (daysSince > 30) segment = 'معرض للانقطاع 🟠';
 
-        return {
-          ...c,
-          daysSince,
-          favoriteChannel,
-          averageOrderValue: c.orderCount > 0 ? c.totalSpend / c.orderCount : 0,
-          segment,
-        };
+        return { ...c, daysSince, favoriteChannel, averageOrderValue: c.orderCount > 0 ? c.totalSpend / c.orderCount : 0, segment };
       });
     }, [orders]);
 
@@ -1201,38 +947,19 @@ function App() {
       const atRisk = enhancedCustomers.filter(c => c.segment.includes('معرض')).length;
       const churned = enhancedCustomers.filter(c => c.segment.includes('منقطع')).length;
       const totalRevenue = enhancedCustomers.reduce((sum, c) => sum + c.totalSpend, 0);
-
       return { totalCustomers, vip, active, atRisk, churned, totalRevenue };
     }, [enhancedCustomers]);
 
-    const crmChannels = useMemo(() => {
-      const set = new Set(
-        enhancedCustomers
-          .map(c => c.favoriteChannel)
-          .filter(Boolean)
-      );
-      return Array.from(set);
-    }, [enhancedCustomers]);
+    const crmChannels = useMemo(() => Array.from(new Set(enhancedCustomers.map(c => c.favoriteChannel).filter(Boolean))), [enhancedCustomers]);
 
     const filteredCRM = useMemo(() => {
       let data = [...enhancedCustomers];
-
       if (searchTerm.trim()) {
         const q = searchTerm.trim();
-        data = data.filter(c =>
-          (c.name || '').includes(q) ||
-          (c.mobile || '').includes(q) ||
-          (c.city || '').includes(q)
-        );
+        data = data.filter(c => (c.name || '').includes(q) || (c.mobile || '').includes(q) || (c.city || '').includes(q));
       }
-
-      if (segmentFilter !== 'all') {
-        data = data.filter(c => c.segment === segmentFilter);
-      }
-
-      if (channelFilter !== 'all') {
-        data = data.filter(c => c.favoriteChannel === channelFilter);
-      }
+      if (segmentFilter !== 'all') data = data.filter(c => c.segment === segmentFilter);
+      if (channelFilter !== 'all') data = data.filter(c => c.favoriteChannel === channelFilter);
 
       data.sort((a, b) => {
         if (sortBy === 'totalSpend') return b.totalSpend - a.totalSpend;
@@ -1241,49 +968,30 @@ function App() {
         if (sortBy === 'averageOrderValue') return b.averageOrderValue - a.averageOrderValue;
         return 0;
       });
-
       return data;
     }, [enhancedCustomers, searchTerm, segmentFilter, channelFilter, sortBy]);
 
     const crmTotalPages = Math.max(1, Math.ceil(filteredCRM.length / crmPageSize));
+    const paginatedCRM = useMemo(() => filteredCRM.slice((crmPage - 1) * crmPageSize, (crmPage - 1) * crmPageSize + crmPageSize), [filteredCRM, crmPage]);
 
-    const paginatedCRM = useMemo(() => {
-      const start = (crmPage - 1) * crmPageSize;
-      return filteredCRM.slice(start, start + crmPageSize);
-    }, [filteredCRM, crmPage]);
-
-    useEffect(() => {
-      setCrmPage(1);
-    }, [searchTerm, segmentFilter, channelFilter, sortBy]);
+    useEffect(() => setCrmPage(1), [searchTerm, segmentFilter, channelFilter, sortBy]);
 
     const topSpenders = useMemo(() => filteredCRM.slice(0, 5), [filteredCRM]);
 
     const exportCRMToExcel = async () => {
       try {
         const XLSX = await loadXLSX();
-
         const rows = filteredCRM.map(c => ({
-          'اسم العميل': c.name,
-          'الجوال': c.mobile,
-          'المدينة': c.city || '',
-          'عدد الطلبات': c.orderCount,
-          'إجمالي الإنفاق': c.totalSpend,
-          'متوسط السلة': c.averageOrderValue.toFixed(2),
-          'أول طلب': c.firstOrder || '',
-          'آخر طلب': c.lastOrder || '',
-          'منذ آخر طلب (يوم)': c.daysSince,
-          'التصنيف': c.segment,
-          'القناة المفضلة': c.favoriteChannel || '',
+          'اسم العميل': c.name, 'الجوال': c.mobile, 'المدينة': c.city || '', 'عدد الطلبات': c.orderCount,
+          'إجمالي الإنفاق': c.totalSpend, 'متوسط السلة': c.averageOrderValue.toFixed(2),
+          'أول طلب': c.firstOrder || '', 'آخر طلب': c.lastOrder || '', 'منذ آخر طلب (يوم)': c.daysSince,
+          'التصنيف': c.segment, 'القناة المفضلة': c.favoriteChannel || '',
         }));
-
         const worksheet = XLSX.utils.json_to_sheet(rows);
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, 'CRM');
         XLSX.writeFile(workbook, `CRM_Report_${endDate}.xlsx`);
-      } catch (e) {
-        console.error(e);
-        alert('تعذر تصدير التقرير');
-      }
+      } catch (e) { alert('تعذر تصدير التقرير'); }
     };
 
     return (
@@ -1291,22 +999,10 @@ function App() {
         <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 p-8">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-8">
             <div>
-              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">
-                <UsersRound className="text-indigo-500" size={28} />
-                العملاء (CRM)
-              </h2>
-              <p className="text-sm text-slate-500 mt-2">
-                لوحة CRM احترافية لإدارة العملاء، الشرائح، والتقارير.
-              </p>
+              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3"><UsersRound className="text-indigo-500" size={28} /> العملاء (CRM)</h2>
+              <p className="text-sm text-slate-500 mt-2">لوحة CRM احترافية لإدارة العملاء، الشرائح، والتقارير.</p>
             </div>
-
-            <button
-              onClick={exportCRMToExcel}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-5 py-3 rounded-xl flex items-center gap-2 shadow-sm"
-            >
-              <Download size={18} />
-              تصدير تقرير CRM
-            </button>
+            <button onClick={exportCRMToExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white font-black px-5 py-3 rounded-xl flex items-center gap-2 shadow-sm"><Download size={18} /> تصدير تقرير CRM</button>
           </div>
 
           {/* Summary Cards */}
@@ -1331,47 +1027,16 @@ function App() {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               <div className="relative">
                 <Search className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input
-                  type="text"
-                  placeholder="ابحث بالاسم أو الجوال أو المدينة..."
-                  className="w-full pl-4 pr-12 py-3 rounded-2xl border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none bg-white shadow-sm"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+                <input type="text" placeholder="ابحث بالاسم أو الجوال أو المدينة..." className="w-full pl-4 pr-12 py-3 rounded-2xl border border-slate-200 text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none bg-white shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
               </div>
-
-              <select
-                className="w-full py-3 px-4 rounded-2xl border border-slate-200 text-sm font-bold outline-none bg-white shadow-sm"
-                value={segmentFilter}
-                onChange={(e) => setSegmentFilter(e.target.value)}
-              >
-                <option value="all">كل التصنيفات</option>
-                <option value="نشط">نشط</option>
-                <option value="VIP 🌟">VIP 🌟</option>
-                <option value="معرض للانقطاع 🟠">معرض للانقطاع 🟠</option>
-                <option value="منقطع ⚠️">منقطع ⚠️</option>
+              <select className="w-full py-3 px-4 rounded-2xl border border-slate-200 text-sm font-bold outline-none bg-white shadow-sm" value={segmentFilter} onChange={(e) => setSegmentFilter(e.target.value)}>
+                <option value="all">كل التصنيفات</option><option value="نشط">نشط</option><option value="VIP 🌟">VIP 🌟</option><option value="معرض للانقطاع 🟠">معرض للانقطاع 🟠</option><option value="منقطع ⚠️">منقطع ⚠️</option>
               </select>
-
-              <select
-                className="w-full py-3 px-4 rounded-2xl border border-slate-200 text-sm font-bold outline-none bg-white shadow-sm"
-                value={channelFilter}
-                onChange={(e) => setChannelFilter(e.target.value)}
-              >
-                <option value="all">كل القنوات</option>
-                {crmChannels.map((ch) => (
-                  <option key={ch} value={ch}>{ch}</option>
-                ))}
+              <select className="w-full py-3 px-4 rounded-2xl border border-slate-200 text-sm font-bold outline-none bg-white shadow-sm" value={channelFilter} onChange={(e) => setChannelFilter(e.target.value)}>
+                <option value="all">كل القنوات</option>{crmChannels.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
               </select>
-
-              <select
-                className="w-full py-3 px-4 rounded-2xl border border-slate-200 text-sm font-bold outline-none bg-white shadow-sm"
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-              >
-                <option value="totalSpend">ترتيب حسب الإنفاق</option>
-                <option value="orderCount">ترتيب حسب عدد الطلبات</option>
-                <option value="lastOrder">ترتيب حسب آخر طلب</option>
-                <option value="averageOrderValue">ترتيب حسب متوسط السلة</option>
+              <select className="w-full py-3 px-4 rounded-2xl border border-slate-200 text-sm font-bold outline-none bg-white shadow-sm" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                <option value="totalSpend">ترتيب حسب الإنفاق</option><option value="orderCount">ترتيب حسب عدد الطلبات</option><option value="lastOrder">ترتيب حسب آخر طلب</option><option value="averageOrderValue">ترتيب حسب متوسط السلة</option>
               </select>
             </div>
           </div>
@@ -1382,25 +1047,10 @@ function App() {
               <div className="overflow-x-auto rounded-3xl border border-slate-100 max-h-[70vh] overflow-y-auto custom-scrollbar">
                 <table className="w-full text-right text-sm bg-white">
                   <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-widest font-bold sticky top-0 z-10 shadow-sm">
-                    <tr>
-                      <th className="p-5 border-b">اسم العميل</th>
-                      <th className="p-5 border-b">الجوال</th>
-                      <th className="p-5 border-b">عدد الطلبات</th>
-                      <th className="p-5 border-b">إجمالي الإنفاق</th>
-                      <th className="p-5 border-b">متوسط السلة</th>
-                      <th className="p-5 border-b">آخر طلب</th>
-                      <th className="p-5 border-b">القناة المفضلة</th>
-                      <th className="p-5 border-b">التصنيف</th>
-                    </tr>
+                    <tr><th className="p-5 border-b">اسم العميل</th><th className="p-5 border-b">الجوال</th><th className="p-5 border-b">عدد الطلبات</th><th className="p-5 border-b">إجمالي الإنفاق</th><th className="p-5 border-b">متوسط السلة</th><th className="p-5 border-b">آخر طلب</th><th className="p-5 border-b">القناة المفضلة</th><th className="p-5 border-b">التصنيف</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {paginatedCRM.length === 0 ? (
-                      <tr>
-                        <td colSpan="8" className="p-12 text-center text-slate-400 font-bold">
-                          لا توجد نتائج مطابقة
-                        </td>
-                      </tr>
-                    ) : (
+                    {paginatedCRM.length === 0 ? <tr><td colSpan="8" className="p-12 text-center text-slate-400 font-bold">لا توجد نتائج مطابقة</td></tr> : 
                       paginatedCRM.map((c, i) => (
                         <tr key={`${c.mobile}-${i}`} className="hover:bg-indigo-50/30 transition-colors">
                           <td className="p-5 font-black text-slate-800">{c.name}</td>
@@ -1408,58 +1058,19 @@ function App() {
                           <td className="p-5 font-black text-center text-indigo-600">{c.orderCount}</td>
                           <td className="p-5 font-black text-emerald-600">{c.totalSpend.toLocaleString()} ﷼</td>
                           <td className="p-5 font-black text-slate-700">{c.averageOrderValue.toFixed(2)} ﷼</td>
-                          <td className="p-5 text-xs text-slate-500 font-bold">
-                            {c.lastOrder}
-                            <span className="block text-[10px] text-slate-400 mt-1">
-                              منذ {c.daysSince} يوم
-                            </span>
-                          </td>
-                          <td className="p-5">
-                            <span className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg text-[10px] font-bold">
-                              {c.favoriteChannel}
-                            </span>
-                          </td>
-                          <td className="p-5">
-                            <span className={`px-3 py-1.5 rounded-lg text-xs font-black ${
-                              c.segment.includes('VIP')
-                                ? 'bg-amber-100 text-amber-700'
-                                : c.segment.includes('معرض')
-                                ? 'bg-orange-100 text-orange-700'
-                                : c.segment.includes('منقطع')
-                                ? 'bg-rose-100 text-rose-700'
-                                : 'bg-emerald-100 text-emerald-700'
-                            }`}>
-                              {c.segment}
-                            </span>
-                          </td>
+                          <td className="p-5 text-xs text-slate-500 font-bold">{c.lastOrder}<span className="block text-[10px] text-slate-400 mt-1">منذ {c.daysSince} يوم</span></td>
+                          <td className="p-5"><span className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg text-[10px] font-bold">{c.favoriteChannel}</span></td>
+                          <td className="p-5"><span className={`px-3 py-1.5 rounded-lg text-xs font-black ${c.segment.includes('VIP') ? 'bg-amber-100 text-amber-700' : c.segment.includes('معرض') ? 'bg-orange-100 text-orange-700' : c.segment.includes('منقطع') ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{c.segment}</span></td>
                         </tr>
                       ))
-                    )}
+                    }
                   </tbody>
                 </table>
               </div>
-
-              {/* Pagination */}
               <div className="flex items-center justify-between mt-6">
-                <button
-                  onClick={() => setCrmPage(p => Math.max(1, p - 1))}
-                  disabled={crmPage === 1}
-                  className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold disabled:opacity-50"
-                >
-                  السابق
-                </button>
-
-                <span className="text-sm font-bold text-slate-500">
-                  صفحة {crmPage} من {crmTotalPages}
-                </span>
-
-                <button
-                  onClick={() => setCrmPage(p => Math.min(crmTotalPages, p + 1))}
-                  disabled={crmPage === crmTotalPages}
-                  className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold disabled:opacity-50"
-                >
-                  التالي
-                </button>
+                <button onClick={() => setCrmPage(p => Math.max(1, p - 1))} disabled={crmPage === 1} className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold disabled:opacity-50">السابق</button>
+                <span className="text-sm font-bold text-slate-500">صفحة {crmPage} من {crmTotalPages}</span>
+                <button onClick={() => setCrmPage(p => Math.min(crmTotalPages, p + 1))} disabled={crmPage === crmTotalPages} className="px-4 py-2 rounded-xl border border-slate-200 bg-white font-bold disabled:opacity-50">التالي</button>
               </div>
             </div>
 
@@ -1468,9 +1079,7 @@ function App() {
               <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm">
                 <h3 className="font-black text-slate-800 mb-4">أعلى العملاء إنفاقًا</h3>
                 <div className="space-y-3">
-                  {topSpenders.length === 0 ? (
-                    <div className="text-slate-400 font-bold text-sm">لا توجد بيانات</div>
-                  ) : (
+                  {topSpenders.length === 0 ? <div className="text-slate-400 font-bold text-sm">لا توجد بيانات</div> : 
                     topSpenders.map((c, i) => (
                       <div key={i} className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
                         <p className="font-black text-slate-800 text-sm">{c.name}</p>
@@ -1478,25 +1087,15 @@ function App() {
                         <p className="text-sm font-black text-emerald-600 mt-2">{c.totalSpend.toLocaleString()} ﷼</p>
                       </div>
                     ))
-                  )}
+                  }
                 </div>
               </div>
-
               <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm">
                 <h3 className="font-black text-slate-800 mb-4">ملخص سريع</h3>
                 <div className="space-y-3 text-sm font-bold text-slate-600">
-                  <div className="flex justify-between">
-                    <span>النتائج الحالية</span>
-                    <span className="text-slate-800">{filteredCRM.length}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>عدد الصفحات</span>
-                    <span className="text-slate-800">{crmTotalPages}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>حجم الصفحة</span>
-                    <span className="text-slate-800">{crmPageSize}</span>
-                  </div>
+                  <div className="flex justify-between"><span>النتائج الحالية</span><span className="text-slate-800">{filteredCRM.length}</span></div>
+                  <div className="flex justify-between"><span>عدد الصفحات</span><span className="text-slate-800">{crmTotalPages}</span></div>
+                  <div className="flex justify-between"><span>حجم الصفحة</span><span className="text-slate-800">{crmPageSize}</span></div>
                 </div>
               </div>
             </div>
@@ -1506,9 +1105,357 @@ function App() {
     );
   };
 
-  // --- MAIN RENDER ---
+  const AdCostsTab = () => {
+    const [date, setDate] = useState(todayStr);
+    const [channel, setChannel] = useState(channelsList[0] || '');
+    const [campaign, setCampaign] = useState('');
+    const [cost, setCost] = useState('');
+    const [note, setNote] = useState('');
+
+    const handleAdd = async (e) => {
+      e.preventDefault();
+      if (!channel || !cost) return;
+      setIsSyncing(true);
+      try {
+        const id = `ad_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'adcosts', id), {
+          date, channel: channel.trim(), campaign: campaign.trim(), cost: parseFloat(cost) || 0, note: note.trim(), timestamp: Date.now()
+        });
+        setCampaign(''); setCost(''); setNote('');
+      } catch (err) { console.error(err); alert('حدث خطأ أثناء حفظ التكلفة'); } 
+      finally { setIsSyncing(false); }
+    };
+
+    const handleDelete = async (id) => {
+      if (!safeConfirm('هل تريد حذف هذا السجل؟')) return;
+      setIsSyncing(true);
+      try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'adcosts', id)); } 
+      catch (err) { console.error(err); alert('تعذر حذف السجل'); } 
+      finally { setIsSyncing(false); }
+    };
+
+    return (
+      <div className="space-y-6 animate-in fade-in">
+        <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
+          <h2 className="text-2xl font-black text-slate-800 mb-2 flex items-center gap-3"><Megaphone className="text-rose-500" size={28} /> التسويق</h2>
+          <p className="text-sm text-slate-500 mb-8">إدارة تكاليف الحملات والقنوات التسويقية لضبط الـ ROI.</p>
+
+          <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
+            <input type="date" className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" value={date} onChange={(e) => setDate(e.target.value)} />
+            <input type="text" list="channels-list" placeholder="القناة" className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" value={channel} onChange={(e) => setChannel(e.target.value)} />
+            <datalist id="channels-list">{channelsList.map((c) => <option key={c} value={c} />)}</datalist>
+            <input type="text" placeholder="اسم الحملة" className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" value={campaign} onChange={(e) => setCampaign(e.target.value)} />
+            <input type="number" placeholder="التكلفة" className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" value={cost} onChange={(e) => setCost(e.target.value)} />
+            <button type="submit" className="bg-rose-600 hover:bg-rose-700 text-white font-black rounded-xl px-5 py-3">إضافة</button>
+            <div className="md:col-span-5"><input type="text" placeholder="ملاحظات" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none" value={note} onChange={(e) => setNote(e.target.value)} /></div>
+          </form>
+
+          <div className="overflow-x-auto max-h-[60vh] custom-scrollbar">
+            <table className="w-full text-right text-sm">
+              <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-widest font-bold sticky top-0 z-10 shadow-sm">
+                <tr><th className="p-4 border-b">التاريخ</th><th className="p-4 border-b">القناة</th><th className="p-4 border-b">الحملة</th><th className="p-4 border-b">التكلفة</th><th className="p-4 border-b">ملاحظات</th><th className="p-4 border-b">إجراء</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {adCosts.length === 0 ? <tr><td colSpan="6" className="p-10 text-center text-slate-400 font-bold">لا توجد سجلات تسويق.</td></tr> : (
+                  adCosts.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="p-4">{item.date}</td><td className="p-4 font-bold">{item.channel}</td><td className="p-4">{item.campaign || '-'}</td>
+                      <td className="p-4 font-black text-rose-600">{(parseFloat(item.cost) || 0).toLocaleString()} ﷼</td>
+                      <td className="p-4 text-slate-500">{item.note || '-'}</td>
+                      <td className="p-4"><button onClick={() => handleDelete(item.id)} className="text-rose-600 hover:text-rose-800 font-bold"><Trash2 size={18}/></button></td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const DefinitionsTab = () => {
+    const [newSku, setNewSku] = useState('');
+    const [newName, setNewName] = useState('');
+    const [newOpeningStock, setNewOpeningStock] = useState('0');
+    const [newOpeningDate, setNewOpeningDate] = useState(todayStr);
+    const [newCost, setNewCost] = useState('0');
+    const [newSellingPrice, setNewSellingPrice] = useState('0');
+    const [editingSku, setEditingSku] = useState(null);
+    const [editData, setEditData] = useState({});
+
+    const [pkgCode, setPkgCode] = useState('');
+    const [pkgName, setPkgName] = useState('');
+    const [pkgGroup, setPkgGroup] = useState('');
+    const [pkgChannel, setPkgChannel] = useState('');
+    const [pkgPrice, setPkgPrice] = useState('');
+    const [pkgItems, setPkgItems] = useState({});
+    const [itemSelectSku, setItemSelectSku] = useState(Object.keys(productDetails)[0] || '');
+    const [itemSelectQty, setItemSelectQty] = useState(1);
+    const [newChannelStr, setNewChannelStr] = useState('');
+
+    const handleAddProduct = () => {
+      const skuTrimmed = newSku.trim();
+      if (!skuTrimmed || productDetails[skuTrimmed]) { alert("SKU غير صالح أو موجود مسبقاً"); return; }
+      const newDetails = { ...productDetails };
+      newDetails[skuTrimmed] = { sku: skuTrimmed, name: newName.trim() || skuTrimmed, openingStock: parseInt(newOpeningStock) || 0, openingDate: newOpeningDate || todayStr, unitCost: parseFloat(newCost) || 0, sellingPrice: parseFloat(newSellingPrice) || 0 };
+      updateSettingsInCloud(newDetails, packages, channelsList);
+      setNewSku(''); setNewName(''); setNewOpeningStock('0'); setNewCost('0'); setNewSellingPrice('0');
+    };
+
+    const handleSaveEditProduct = () => {
+      const newDetails = { ...productDetails };
+      newDetails[editingSku] = { ...newDetails[editingSku], name: editData.name, openingStock: parseInt(editData.openingStock) || 0, openingDate: editData.openingDate, unitCost: parseFloat(editData.unitCost) || 0, sellingPrice: parseFloat(editData.sellingPrice) || 0 };
+      updateSettingsInCloud(newDetails, packages, channelsList);
+      setEditingSku(null);
+    };
+
+    const handleDeleteProduct = (sku) => {
+      if(safeConfirm(`هل أنت متأكد من حذف ${sku}؟`)) {
+        const newDetails = { ...productDetails }; delete newDetails[sku];
+        updateSettingsInCloud(newDetails, packages, channelsList);
+      }
+    };
+
+    const handleAddPackageItem = () => {
+      if (!itemSelectSku) return;
+      setPkgItems(prev => ({ ...prev, [itemSelectSku]: (prev[itemSelectSku] || 0) + parseInt(itemSelectQty) }));
+      setItemSelectQty(1);
+    };
+
+    const handleRemovePackageItem = (sku) => { const newItems = { ...pkgItems }; delete newItems[sku]; setPkgItems(newItems); };
+
+    const handleAddPackage = () => {
+      if (!pkgCode.trim() || !pkgName.trim() || Object.keys(pkgItems).length === 0) { alert("أكمل بيانات البكج"); return; }
+      const newPackages = { ...packages, [pkgCode.trim()]: { name: pkgName.trim(), group: pkgGroup.trim() || pkgName.trim(), channel: pkgChannel.trim() || 'عام', price: parseFloat(pkgPrice) || 0, items: pkgItems } };
+      updateSettingsInCloud(productDetails, newPackages, channelsList);
+      setPkgCode(''); setPkgName(''); setPkgGroup(''); setPkgChannel(''); setPkgPrice(''); setPkgItems({});
+    };
+
+    const handleAddChannel = () => {
+      if(!newChannelStr.trim() || channelsList.includes(newChannelStr.trim())) return;
+      updateSettingsInCloud(productDetails, packages, [...channelsList, newChannelStr.trim()]);
+      setNewChannelStr('');
+    };
+    
+    const handleRemoveChannel = (ch) => {
+      if(safeConfirm('حذف القناة؟')) updateSettingsInCloud(productDetails, packages, channelsList.filter(c => c !== ch));
+    };
+
+    return (
+      <div className="space-y-6 animate-in fade-in pb-10">
+        <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm relative">
+           <h3 className="text-xl font-black text-slate-800 mb-4 flex items-center gap-3 border-b border-slate-100 pb-4"><Package size={24} className="text-blue-500"/> التأسيس: المنتجات (SKUs)</h3>
+           <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl mb-6 text-xs text-amber-800 font-bold flex items-center gap-3"><AlertTriangle size={16} className="text-amber-600 shrink-0"/> النظام لن يحسب الحركات التي تسبق "تاريخ الافتتاح" لمنع التكرار!</div>
+           <div className="grid grid-cols-1 md:grid-cols-7 gap-3 bg-slate-50 p-5 rounded-2xl border border-slate-100 mb-8">
+             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">SKU</label><input type="text" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={newSku} onChange={e=>setNewSku(e.target.value)} /></div>
+             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">الاسم</label><input type="text" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={newName} onChange={e=>setNewName(e.target.value)} /></div>
+             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">افتتاحي</label><input type="number" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm text-blue-600" value={newOpeningStock} onChange={e=>setNewOpeningStock(e.target.value)} /></div>
+             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">تاريخ</label><input type="date" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={newOpeningDate} onChange={e=>setNewOpeningDate(e.target.value)} /></div>
+             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">تكلفة</label><input type="number" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm text-orange-600 focus:ring-2 ring-orange-500" value={newCost} onChange={e=>setNewCost(e.target.value)} /></div>
+             <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">بيع</label><input type="number" className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm text-emerald-600 focus:ring-2 ring-emerald-500" value={newSellingPrice} onChange={e=>setNewSellingPrice(e.target.value)} /></div>
+             <div className="flex items-end"><button onClick={handleAddProduct} className="w-full bg-blue-600 text-white p-2.5 rounded-xl text-sm font-black hover:bg-blue-700 shadow-sm transition-colors">إضافة</button></div>
+           </div>
+
+           <div className="overflow-x-auto max-h-[50vh] custom-scrollbar">
+             <table className="w-full text-right text-sm">
+               <thead className="bg-slate-100 text-slate-500 text-[10px] uppercase tracking-widest font-black sticky top-0 z-10 shadow-sm">
+                 <tr><th className="p-4 border-b rounded-tr-xl">SKU</th><th className="p-4 border-b">المنتج</th><th className="p-4 border-b">افتتاحي</th><th className="p-4 border-b">التاريخ</th><th className="p-4 border-b">التكلفة</th><th className="p-4 border-b">البيع</th><th className="p-4 border-b text-center rounded-tl-xl">إجراء</th></tr>
+               </thead>
+               <tbody className="divide-y divide-slate-50">
+                 {Object.values(productDetails).map(p => (
+                   <tr key={p.sku} className="hover:bg-slate-50 transition-colors">
+                     <td className="p-4 font-mono font-bold text-slate-800 text-xs">{p.sku}</td>
+                     {editingSku === p.sku ? (
+                       <>
+                         <td className="p-2"><input type="text" className="w-full p-2 text-xs border rounded-lg" value={editData.name} onChange={e=>setEditData({...editData, name: e.target.value})} /></td>
+                         <td className="p-2"><input type="number" className="w-20 p-2 text-xs border rounded-lg font-bold text-blue-600" value={editData.openingStock} onChange={e=>setEditData({...editData, openingStock: e.target.value})} /></td>
+                         <td className="p-2"><input type="date" className="w-32 p-2 text-xs border rounded-lg" value={editData.openingDate} onChange={e=>setEditData({...editData, openingDate: e.target.value})} /></td>
+                         <td className="p-2"><input type="number" className="w-20 p-2 text-xs border rounded-lg font-bold text-orange-600" value={editData.unitCost} onChange={e=>setEditData({...editData, unitCost: e.target.value})} /></td>
+                         <td className="p-2"><input type="number" className="w-20 p-2 text-xs border rounded-lg font-bold text-emerald-600" value={editData.sellingPrice} onChange={e=>setEditData({...editData, sellingPrice: e.target.value})} /></td>
+                         <td className="p-2 text-center flex justify-center gap-2">
+                           <button onClick={handleSaveEditProduct} className="bg-emerald-500 text-white p-2 rounded-lg shadow-sm"><Check size={14}/></button>
+                           <button onClick={() => setEditingSku(null)} className="bg-slate-300 text-slate-700 p-2 rounded-lg shadow-sm"><X size={14}/></button>
+                         </td>
+                       </>
+                     ) : (
+                       <>
+                         <td className="p-4 font-bold text-slate-700">{p.name}</td>
+                         <td className="p-4 font-black text-blue-600 text-lg">{p.openingStock}</td>
+                         <td className="p-4 text-xs text-slate-500 font-bold">{p.openingDate}</td>
+                         <td className="p-4 font-black text-orange-600">{p.unitCost} ﷼</td>
+                         <td className="p-4 font-black text-emerald-600">{p.sellingPrice || 0} ﷼</td>
+                         <td className="p-4 text-center flex justify-center gap-3">
+                           <button onClick={() => { setEditingSku(p.sku); setEditData(p); }} className="text-slate-400 hover:text-blue-500 transition-colors"><Edit2 size={16}/></button>
+                           <button onClick={() => handleDeleteProduct(p.sku)} className="text-slate-400 hover:text-rose-500 transition-colors"><Trash2 size={16}/></button>
+                         </td>
+                       </>
+                     )}
+                   </tr>
+                 ))}
+               </tbody>
+             </table>
+           </div>
+        </div>
+
+        {/* --- القنوات التسويقية --- */}
+        <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm">
+          <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-3 border-b border-slate-100 pb-4"><Target size={24} className="text-indigo-500"/> قنوات التسويق (Channels)</h3>
+          <div className="flex flex-wrap gap-3 mb-6">
+            {channelsList.map(ch => (
+              <div key={ch} className="bg-slate-100 text-slate-700 px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 border border-slate-200">
+                {ch} <button onClick={()=>handleRemoveChannel(ch)} className="text-slate-400 hover:text-rose-500"><X size={14}/></button>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-3 max-w-sm">
+            <input type="text" placeholder="اسم القناة الجديدة..." className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-sm focus:ring-2 ring-indigo-500" value={newChannelStr} onChange={e=>setNewChannelStr(e.target.value)}/>
+            <button onClick={handleAddChannel} className="bg-indigo-600 text-white px-6 rounded-xl font-black text-sm shadow-sm hover:bg-indigo-700">إضافة</button>
+          </div>
+        </div>
+
+        {/* --- البكجات --- */}
+        <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm relative">
+           <h3 className="text-xl font-black text-slate-800 mb-6 flex items-center gap-3 border-b border-slate-100 pb-4"><PackageOpen size={24} className="text-purple-500"/> إدارة البكجات والتسعير</h3>
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
+             {Object.entries(packages).map(([code, pkg]) => (
+               <div key={code} className="bg-white border-2 border-slate-100 rounded-2xl p-6 flex flex-col relative group hover:border-purple-200 transition-colors shadow-sm">
+                 <div className="absolute top-4 left-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                   <button onClick={() => { setPkgCode(code); setPkgName(pkg.name); setPkgGroup(pkg.group); setPkgChannel(pkg.channel); setPkgPrice(pkg.price); setPkgItems({...pkg.items}); }} className="text-slate-400 hover:text-blue-500 bg-white rounded-lg p-1.5 shadow-sm border"><Edit2 size={16}/></button>
+                   <button onClick={() => handleDeletePackage(code)} className="text-slate-400 hover:text-rose-500 bg-white rounded-lg p-1.5 shadow-sm border"><Trash2 size={16}/></button>
+                 </div>
+                 <div className="font-black text-lg text-slate-800 mb-2 pr-6 truncate">{pkg.name}</div>
+                 <div className="flex items-center gap-3 mb-4">
+                    <div className="text-xs text-indigo-600 font-mono bg-indigo-50 px-2.5 py-1 rounded-lg font-bold">{code}</div>
+                    <div className="text-[11px] text-emerald-700 font-black bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">{pkg.price} ﷼</div>
+                 </div>
+                 <div className="space-y-2 mb-5 flex-1">
+                   <div className="flex justify-between items-center text-xs font-bold text-slate-500"><span>المجموعة:</span> <span className="text-slate-700 truncate">{pkg.group}</span></div>
+                   <div className="flex justify-between items-center text-xs font-bold text-slate-500"><span>القناة:</span> <span className="text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md truncate">{pkg.channel}</span></div>
+                 </div>
+                 <div className="border-t border-slate-100 pt-4">
+                   <div className="flex flex-wrap gap-1.5">
+                     {Object.entries(pkg.items).map(([sku, qty]) => (
+                       <span key={sku} className="text-[10px] font-black bg-slate-50 border border-slate-200 text-slate-600 px-2 py-1 rounded-lg flex items-center gap-1.5">
+                         <span dir="ltr">{sku}</span> <span className="text-indigo-500 text-[10px]">x{qty}</span>
+                       </span>
+                     ))}
+                   </div>
+                 </div>
+               </div>
+             ))}
+           </div>
+
+           <div id="package-form" className={`rounded-2xl border-2 p-6 md:p-8 ${Object.keys(packages).includes(pkgCode.trim()) ? 'bg-purple-50 border-purple-200' : 'bg-slate-50 border-slate-200 border-dashed'}`}>
+             <h4 className="font-black text-lg mb-6 flex items-center gap-2 text-slate-800"><Plus size={20}/> {Object.keys(packages).includes(pkgCode.trim()) ? 'تحديث بيانات البكج' : 'إنشاء بكج جديد'}</h4>
+             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+               <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">كود البكج</label><input type="text" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm font-mono" value={pkgCode} onChange={e=>setPkgCode(e.target.value)} disabled={Object.keys(packages).includes(pkgCode.trim())} /></div>
+               <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">اسم البكج</label><input type="text" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={pkgName} onChange={e=>setPkgName(e.target.value)} /></div>
+               <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">السعر (للأرباح)</label><input type="number" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-black text-sm text-emerald-600 focus:ring-2 ring-emerald-500" value={pkgPrice} onChange={e=>setPkgPrice(e.target.value)} /></div>
+               <div><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">المجموعة</label><input type="text" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={pkgGroup} onChange={e=>setPkgGroup(e.target.value)} /></div>
+               <div>
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">القناة / المشهور</label>
+                  <input type="text" list="pkg-channels" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm" value={pkgChannel} onChange={e=>setPkgChannel(e.target.value)} />
+                  <datalist id="pkg-channels">{channelsList.map(c=><option key={c} value={c}/>)}</datalist>
+               </div>
+
+               <div className="md:col-span-5 bg-white p-5 rounded-2xl border border-slate-200 mt-4 shadow-sm">
+                 <label className="block text-xs font-black text-slate-800 mb-4 flex items-center gap-2"><Package size={16}/> محتويات البكج (SKUs):</label>
+                 <div className="flex flex-wrap items-center gap-3 mb-5">
+                   <select className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold flex-1 outline-none focus:ring-2 ring-indigo-500" value={itemSelectSku} onChange={e=>setItemSelectSku(e.target.value)}>
+                     {Object.keys(productDetails).map(sku => <option key={sku} value={sku}>{sku} - {productDetails[sku].name}</option>)}
+                   </select>
+                   <input type="number" min="1" className="w-24 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black text-center outline-none" value={itemSelectQty} onChange={e=>setItemSelectQty(e.target.value)} />
+                   <button onClick={handleAddPackageItem} className="bg-slate-800 text-white px-6 py-3 rounded-xl text-sm font-black hover:bg-slate-900 transition-colors shadow-md">إدراج</button>
+                 </div>
+                 {Object.keys(pkgItems).length > 0 && (
+                   <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-100">
+                     {Object.entries(pkgItems).map(([sku, qty]) => (
+                       <div key={sku} className="flex items-center gap-2 bg-indigo-50 text-indigo-900 px-3 py-2 rounded-xl text-xs font-bold border border-indigo-100">
+                         <span dir="ltr">{sku}</span> <span className="bg-white px-2 py-0.5 rounded-lg text-indigo-500 shadow-sm">x{qty}</span>
+                         <button onClick={()=>handleRemovePackageItem(sku)} className="text-indigo-300 hover:text-rose-500 transition-colors ml-1"><X size={14}/></button>
+                       </div>
+                     ))}
+                   </div>
+                 )}
+               </div>
+               <div className="md:col-span-5 mt-4 flex gap-3">
+                 <button onClick={handleAddPackage} className="flex-1 bg-purple-600 text-white p-4 rounded-xl font-black text-base shadow-md hover:bg-purple-700 transition-colors">حفظ واعتماد البكج</button>
+                 {Object.keys(packages).includes(pkgCode.trim()) && (
+                   <button onClick={() => {setPkgCode(''); setPkgName(''); setPkgGroup(''); setPkgChannel(''); setPkgPrice(''); setPkgItems({});}} className="bg-white text-slate-700 p-4 rounded-xl font-bold border border-slate-200 hover:bg-slate-50 transition-colors">إلغاء التعديل</button>
+                 )}
+               </div>
+             </div>
+           </div>
+        </div>
+      </div>
+    );
+  };
+
+  const UsersManagementTab = () => {
+    const [newUserEmail, setNewUserEmail] = useState('');
+    const [newUserRole, setNewUserRole] = useState('viewer');
+
+    const handleAddPermission = async (e) => {
+      e.preventDefault(); if(!newUserEmail.trim()) return;
+      setIsSyncing(true);
+      try {
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'permissions'), { ...permissions, [newUserEmail.trim().toLowerCase()]: newUserRole });
+        setNewUserEmail('');
+      } catch(e) { alert('خطأ'); } finally { setIsSyncing(false); }
+    };
+
+    const handleRemovePermission = async (emailToRemove) => {
+      if(emailToRemove === user.email) return alert('لا يمكنك إزالة نفسك!');
+      if(safeConfirm(`حذف ${emailToRemove}؟`)) {
+        const newPerms = { ...permissions }; delete newPerms[emailToRemove];
+        setIsSyncing(true);
+        try { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'permissions'), newPerms); } 
+        catch(e) { console.error(e); } finally { setIsSyncing(false); }
+      }
+    };
+
+    return (
+      <div className="space-y-6 animate-in fade-in max-w-4xl mx-auto">
+        <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm relative">
+           <div className="flex items-center gap-4 mb-8 border-b border-slate-100 pb-6">
+             <div className="p-4 bg-blue-50 text-blue-600 rounded-2xl"><Shield size={28} /></div>
+             <div>
+               <h3 className="text-2xl font-black text-slate-800">صلاحيات الوصول (Access Control)</h3>
+               <p className="text-sm text-slate-500 mt-1">تأكد من إنشاء الحسابات أولاً في منصة Firebase قبل منحها الصلاحيات هنا.</p>
+             </div>
+           </div>
+
+           <form onSubmit={handleAddPermission} className="flex flex-col md:flex-row gap-4 mb-10 bg-slate-50 p-6 rounded-2xl border border-slate-100">
+             <div className="flex-1"><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">البريد الإلكتروني</label><input type="email" required placeholder="emp@domain.com" className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 ring-blue-500 text-sm text-left font-mono font-bold" dir="ltr" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} /></div>
+             <div className="md:w-64"><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">الرتبة (Role)</label><select className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 ring-blue-500 text-sm font-bold" value={newUserRole} onChange={e => setNewUserRole(e.target.value)}><option value="super_admin">Super Admin (كامل)</option><option value="admin">Admin (بدون النظام والقرارات)</option><option value="editor">Editor (إدخال فقط)</option><option value="viewer">Viewer (لوحة فقط)</option></select></div>
+             <div className="flex items-end"><button type="submit" disabled={isSyncing} className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-black text-sm transition-colors shadow-md">منح الصلاحية</button></div>
+           </form>
+
+           <div className="overflow-x-auto max-h-[50vh] custom-scrollbar">
+             <table className="w-full text-right text-sm">
+               <thead className="bg-slate-100 text-slate-500 text-xs uppercase tracking-widest sticky top-0 z-10 shadow-sm">
+                 <tr><th className="p-4 border-b rounded-tr-xl">المستخدم</th><th className="p-4 border-b">الرتبة</th><th className="p-4 border-b text-center rounded-tl-xl">إجراء</th></tr>
+               </thead>
+               <tbody className="divide-y divide-slate-50">
+                 {Object.entries(permissions).map(([email, role]) => (
+                   <tr key={email} className="hover:bg-slate-50 transition-colors">
+                     <td className="p-4 font-mono font-bold text-slate-700 text-xs" dir="ltr">{email} {email === user.email && <span className="text-[10px] text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-lg ml-2 border border-emerald-100">أنت</span>}</td>
+                     <td className="p-4"><span className={`px-3 py-1.5 rounded-lg text-[10px] font-black ${role==='super_admin'?'bg-purple-100 text-purple-700':role==='admin'?'bg-blue-100 text-blue-700':role==='editor'?'bg-emerald-100 text-emerald-700':'bg-slate-200 text-slate-700'}`}>{role}</span></td>
+                     <td className="p-4 text-center"><button onClick={() => handleRemovePermission(email)} className="text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={18} /></button></td>
+                   </tr>
+                 ))}
+               </tbody>
+             </table>
+           </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800" dir="rtl">
+      {/* SaaS Navbar */}
       <nav className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
         <div className="max-w-[1600px] mx-auto px-4 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -1538,6 +1485,7 @@ function App() {
         </div>
       </nav>
 
+      {/* Mobile Bottom Navigation */}
       <div className="md:hidden fixed bottom-0 w-full bg-white border-t border-slate-200 z-50 px-2 py-2 flex justify-between overflow-x-auto scrollbar-hide shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
         {navItems.filter(item => item.roles.includes(currentUserRole)).slice(0,5).map(item => (
           <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex flex-col items-center gap-1 p-2 min-w-[64px] rounded-xl transition-colors ${activeTab === item.id ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400'}`}>
@@ -1546,6 +1494,7 @@ function App() {
         ))}
       </div>
 
+      {/* Main Content Wrapper */}
       <main className="max-w-[1600px] mx-auto px-4 lg:px-8 py-8 mb-20 md:mb-8">
         {activeTab === 'dashboard' && <DashboardTab />}
         {activeTab === 'movements' && hasAccess(['super_admin', 'admin', 'editor']) && <><UploadTab/><ManualMovementForm/></>}

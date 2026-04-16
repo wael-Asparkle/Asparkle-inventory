@@ -15,6 +15,7 @@ import StockTab from './tabs/StockTab';
 import MovementsTab from './tabs/MovementsTab';
 import OrdersTab from './tabs/OrdersTab';
 import CRMTab from './tabs/CRMTab';
+import DataAdminTab from './tabs/DataAdminTab';
 
 function App() {
   const { activeTab, setActiveTab } = useAppData();

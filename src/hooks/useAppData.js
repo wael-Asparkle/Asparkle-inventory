@@ -9,6 +9,7 @@ export default function useAppData() {
 
   const [movements, setMovements] = useState([]);
   const [productDetails, setProductDetails] = useState({});
+  const [packages, setPackages] = useState({});
 
   useEffect(() => {
     const unsubscribeMovements = onSnapshot(
@@ -41,8 +42,10 @@ export default function useAppData() {
         if (docSnap.exists()) {
           const data = docSnap.data();
           setProductDetails(data.productDetails || {});
+          setPackages(data.packages || {});
         } else {
           setProductDetails({});
+          setPackages({});
         }
       },
       (error) => {
@@ -68,5 +71,6 @@ export default function useAppData() {
     hasAccess,
     movements,
     productDetails,
+    packages,
   };
 }

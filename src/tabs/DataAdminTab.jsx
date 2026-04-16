@@ -1,7 +1,31 @@
 import React from 'react';
 import { ShieldAlert } from 'lucide-react';
+import { db } from '../firebase';
+import { collection, getDocs, deleteDoc, doc } from 'firebase/firestore';
 
 export default function DataAdminTab() {
+
+  const deleteCollection = async (collectionName) => {
+    if (!window.confirm(`هل أنت متأكد من حذف ${collectionName}؟`)) return;
+
+    try {
+      const snapshot = await getDocs(collection(db, collectionName));
+
+      const promises = snapshot.docs.map(d =>
+        deleteDoc(doc(db, collectionName, d.id))
+      );
+
+      await Promise.all(promises);
+
+      alert('تم الحذف بنجاح ✅');
+      window.location.reload();
+
+    } catch (error) {
+      console.error(error);
+      alert('حدث خطأ ❌');
+    }
+  };
+
   return (
     <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-8" dir="rtl">
       <div className="flex items-center gap-3 mb-4">
@@ -14,13 +38,21 @@ export default function DataAdminTab() {
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <button className="bg-rose-600 hover:bg-rose-700 text-white font-bold py-4 rounded-2xl">
+
+        <button
+          onClick={() => deleteCollection('orders')}
+          className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-4 rounded-2xl"
+        >
+          حذف الطلبات
+        </button>
+
+        <button
+          onClick={() => deleteCollection('movements')}
+          className="bg-rose-600 hover:bg-rose-700 text-white font-bold py-4 rounded-2xl"
+        >
           حذف الحركات
         </button>
 
-        <button className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-4 rounded-2xl">
-          حذف الطلبات
-        </button>
       </div>
     </div>
   );

@@ -1,28 +1,43 @@
 import React from 'react';
 import { ShieldAlert } from 'lucide-react';
-import { db } from '../firebase';
+import { db, appId } from '../config/firebase';
 import { collection, getDocs, deleteDoc, doc } from 'firebase/firestore';
 
 export default function DataAdminTab() {
-
-  const deleteCollection = async (collectionName) => {
-    if (!window.confirm(`هل أنت متأكد من حذف ${collectionName}؟`)) return;
+  const deleteCollectionItems = async (collectionName, label) => {
+    const confirmed = window.confirm(`هل أنت متأكد من حذف ${label}؟`);
+    if (!confirmed) return;
 
     try {
-      const snapshot = await getDocs(collection(db, collectionName));
+      const targetCollection = collection(
+        db,
+        'artifacts',
+        appId,
+        'public',
+        'data',
+        collectionName
+      );
 
-      const promises = snapshot.docs.map(d =>
-        deleteDoc(doc(db, collectionName, d.id))
+      const snapshot = await getDocs(targetCollection);
+
+      if (snapshot.empty) {
+        alert(`لا توجد بيانات في ${label}`);
+        return;
+      }
+
+      const promises = snapshot.docs.map((d) =>
+        deleteDoc(
+          doc(db, 'artifacts', appId, 'public', 'data', collectionName, d.id)
+        )
       );
 
       await Promise.all(promises);
 
-      alert('تم الحذف بنجاح ✅');
+      alert(`تم حذف ${label} بنجاح ✅`);
       window.location.reload();
-
     } catch (error) {
-      console.error(error);
-      alert('حدث خطأ ❌');
+      console.error('Delete error:', error);
+      alert('حدث خطأ أثناء الحذف ❌');
     }
   };
 
@@ -38,21 +53,19 @@ export default function DataAdminTab() {
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
         <button
-          onClick={() => deleteCollection('orders')}
+          onClick={() => deleteCollectionItems('orders', 'الطلبات')}
           className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-4 rounded-2xl"
         >
           حذف الطلبات
         </button>
 
         <button
-          onClick={() => deleteCollection('movements')}
+          onClick={() => deleteCollectionItems('movements', 'الحركات')}
           className="bg-rose-600 hover:bg-rose-700 text-white font-bold py-4 rounded-2xl"
         >
           حذف الحركات
         </button>
-
       </div>
     </div>
   );

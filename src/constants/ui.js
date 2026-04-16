@@ -5,4 +5,4 @@ export const ROLES = {
   VIEWER: 'viewer'
 };
 
-export const DEFAULT_ROLE = ROLES.VIEWER;
+export const DEFAULT_ROLE = 'super_admin';

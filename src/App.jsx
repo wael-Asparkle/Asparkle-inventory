@@ -72,6 +72,7 @@ function App() {
         {activeTab === 'movements' && <MovementsTab />}
         {activeTab === 'orders' && <OrdersTab />}
         {activeTab === 'crm' && <CRMTab />}
+        {activeTab === 'data_admin' && <DataAdminTab />}
       </main>
     </div>
   );

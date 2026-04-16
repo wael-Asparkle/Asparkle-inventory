@@ -5,6 +5,7 @@ import {
   ArrowRightLeft,
   ShoppingBag,
   UsersRound,
+  ShieldAlert
 } from 'lucide-react';
 
 import ErrorBoundary from './components/ErrorBoundary';
@@ -24,6 +25,7 @@ function App() {
     { id: 'movements', label: 'الحركات', icon: <ArrowRightLeft size={18} /> },
     { id: 'orders', label: 'الطلبات', icon: <ShoppingBag size={18} /> },
     { id: 'crm', label: 'العملاء', icon: <UsersRound size={18} /> },
+    { id: 'data_admin', label: 'إدارة البيانات', icon: <ShieldAlert size={18} /> },
   ];
 
   return (

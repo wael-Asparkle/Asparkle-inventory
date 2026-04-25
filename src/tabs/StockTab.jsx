@@ -65,7 +65,8 @@ export default function StockTab() {
       .map((p) => ({
         sku: p.sku,
         name: p.name || p.sku,
-        qty: stock[p.sku] || 0,
+        opening: parseInt(p.openingStock) || 0,
+        current: stock[p.sku] || 0,
       }))
       .sort((a, b) => a.qty - b.qty);
   }, [productDetails, stock]);
@@ -100,7 +101,8 @@ export default function StockTab() {
             <tr>
               <th className="p-3 text-right">SKU</th>
               <th className="p-3 text-right">اسم المنتج</th>
-              <th className="p-3 text-right">الكمية</th>
+              <th className="p-3 text-right">المخزون الافتتاحي</th>
+              <th className="p-3 text-right">المخزون الحالي</th>
             </tr>
           </thead>
           <tbody>
@@ -108,16 +110,17 @@ export default function StockTab() {
               <tr key={row.sku} className="border-t">
                 <td className="p-3 font-mono">{row.sku}</td>
                 <td className="p-3 font-bold text-slate-700">{row.name}</td>
+                <td className="p-3 text-slate-500 font-bold">{row.opening}</td>
                 <td
                   className={`p-3 font-bold ${
-                    row.qty <= 0
+                    row.current <= 0
                       ? 'text-rose-600'
-                      : row.qty <= 10
+                      : row.current <= 10
                       ? 'text-orange-600'
                       : 'text-emerald-600'
                   }`}
                 >
-                  {row.qty}
+                  {row.current}
                 </td>
               </tr>
             ))}

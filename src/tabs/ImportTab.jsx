@@ -5,6 +5,12 @@ import {
 } from 'firebase/firestore';
 import { db, appId } from '../config/firebase';
 import { parseOrderRow, resolveSkusFromRaw, ASG_MAPPING, BUNDLE_COSTS, PRODUCT_CATALOG } from '../constants/masterMapping';
+function paymentToMovementType(payment) {
+  if (!payment) return 'بيع آلي (عبر الربط)';
+  if (payment.includes('تمارا')) return 'بيع (تمارا)';
+  if (payment.includes('دفع عند')) return 'بيع (دفع عند الاستلام)';
+  return 'بيع (دفع إلكتروني)';
+}
 
 // ── مسارات Firebase ──────────────────────────────────────────
 const ordersRef   = () => collection(db, 'artifacts', appId, 'public', 'data', 'orders');

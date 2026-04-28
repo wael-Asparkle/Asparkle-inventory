@@ -1,4 +1,5 @@
 export const MOVEMENT_TYPES = [
+  { id: 'sale', type: 'out' },
   { id: 'بيع (دفع إلكتروني)', type: 'out' },
   { id: 'بيع (تمارا)', type: 'out' },
   { id: 'بيع (دفع عند الاستلام)', type: 'out' },

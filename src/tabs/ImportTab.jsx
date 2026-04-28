@@ -107,7 +107,7 @@ export default function ImportTab() {
           Object.entries(order.skuBreakdown).forEach(([sku, qty]) => {
             const mRef = doc(movementsRef());
             batch.set(mRef, {
-              type:      'sale',
+              type: paymentToMovementType(order.paymentMethod),
               level:     'منتج',
               code:      sku,
               quantity:  qty,

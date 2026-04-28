@@ -1,3 +1,4 @@
+import ImportTab from './tabs/ImportTab';
 import React from 'react';
 import {
   LayoutDashboard,
@@ -5,7 +6,8 @@ import {
   ArrowRightLeft,
   ShoppingBag,
   UsersRound,
-  ShieldAlert
+  ShieldAlert,
+  Upload
 } from 'lucide-react';
 
 import ErrorBoundary from './components/ErrorBoundary';
@@ -27,6 +29,7 @@ function App() {
     { id: 'orders', label: 'الطلبات', icon: <ShoppingBag size={18} /> },
     { id: 'crm', label: 'العملاء', icon: <UsersRound size={18} /> },
     { id: 'data_admin', label: 'إدارة البيانات', icon: <ShieldAlert size={18} /> },
+    { id: 'import', label: 'استيراد', icon: <Upload size={18} /> }
   ];
 
   return (
@@ -73,6 +76,7 @@ function App() {
         {activeTab === 'orders' && <OrdersTab />}
         {activeTab === 'crm' && <CRMTab />}
         {activeTab === 'data_admin' && <DataAdminTab />}
+        {activeTab === 'import' && <ImportTab />}
       </main>
     </div>
   );

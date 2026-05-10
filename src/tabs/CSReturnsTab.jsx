@@ -59,7 +59,11 @@ function classifyRow(row) {
 }
 
 // ── تحليل صف واحد ────────────────────────────────────────────
-function parseRow(row) {
+function parseRow(rawRow) {
+  // تنظيف مفاتيح الأعمدة من المسافات الزيادة
+  const row = {};
+  Object.keys(rawRow).forEach((k) => { row[k.trim()] = rawRow[k]; });
+
   const ref = String(row['رقم الطلب'] || '')
     .replace(/\.0$/, '')
     .replace(/E\d+/g, (m) => '')

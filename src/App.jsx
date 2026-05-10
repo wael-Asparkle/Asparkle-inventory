@@ -7,7 +7,7 @@ import {
   UsersRound,
   ShieldAlert,
   Upload,
-  RotateCcw
+  RotateCcw,
   LogOut, 
 } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';

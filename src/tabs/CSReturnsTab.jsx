@@ -40,22 +40,15 @@ function extractProducts(note) {
 
 // ── تحليل نوع الطلب ──────────────────────────────────────────
 function classifyRow(row) {
-  const amount   = parseFloat(String(row['المبلغ']).replace(/,/g, '')) || 0;
-  const bank     = String(row['اسم البنك'] || '').trim();
-  const note     = String(row['ملاحظات']   || '').toLowerCase().trim();
-  const newOrder = String(row['رقم الطلب الجديد'] || '').replace(/\.0$/, '').trim();
   const status   = String(row['حالة المبلغ'] || '').trim();
+  const bank     = String(row['اسم البنك']   || '').trim();
+  const newOrder = String(row['رقم الطلب الجديد'] || '').replace(/\.0$/, '').trim();
+  const newOrderNum = parseFloat(String(row['رقم الطلب الجديد'] || ''));
+  const hasNewOrder = newOrderNum ? true : !!newOrder;
 
-  // استبدال مجاني أو شحن تعويض
-  if (amount === 0) {
-    if (newOrder) return 'استبدال';
-    if (note.includes('شحن') || note.includes('اعادة') || note.includes('إعادة')) return 'شحن_تعويض';
-    return 'شحن_تعويض';
-  }
-
-  // استرداد مالي
-  if (bank.includes('تمارا')) return 'استرداد_تمارا';
-  return 'استرداد_مالي';
+  if (status.includes('تم الشحن'))     return hasNewOrder ? 'استبدال' : 'شحن_تعويض';
+  if (status.includes('تم التحويل'))   return bank.includes('تمارا') ? 'استرداد_تمارا' : 'استرداد_مالي';
+  return 'قيد_الانتظار';
 }
 
 // ── تحليل صف واحد ────────────────────────────────────────────

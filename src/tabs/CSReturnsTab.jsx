@@ -137,7 +137,7 @@ export default function CSReturnsTab() {
       const XLSX = await loadXLSX();
       const wb   = XLSX.read(await file.arrayBuffer(), { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { defval: '', range: 3 });
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '', range: 2 });
 
       setProgress('جاري تحليل البيانات...');
       const parsedRows = rows.map(parseRow).filter(Boolean);

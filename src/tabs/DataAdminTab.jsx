@@ -146,6 +146,12 @@ export default function DataAdminTab() {
         </button>
 
         <button
+  onClick={() => deleteCollectionItems('cs_returns', 'مرتجعات خدمة العملاء')}
+  className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 rounded-2xl"
+>
+  حذف مرتجعات CS
+</button>
+        <button
           onClick={resetOpeningStock}
           className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl md:col-span-2"
         >

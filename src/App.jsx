@@ -100,6 +100,7 @@ function App() {
         {activeTab === 'orders'     && <OrdersTab />}
         {activeTab === 'crm'        && <CRMTab />}
         {activeTab === 'import'     && <ImportTab />}
+        {activeTab === 'cs_returns' && <CSReturnsTab />}
         {activeTab === 'data_admin' && <DataAdminTab />}
       </main>
     </div>

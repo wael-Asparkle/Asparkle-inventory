@@ -9,6 +9,7 @@ import {
   Upload,
   RotateCcw,
   LogOut, 
+  Database
 } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
 import useAppData from './hooks/useAppData';
@@ -20,6 +21,7 @@ import CRMTab from './tabs/CRMTab';
 import DataAdminTab from './tabs/DataAdminTab';
 import ImportTab from './tabs/ImportTab';
 import CSReturnsTab from './tabs/CSReturnsTab';
+import BetweenImportTab from './tabs/BetweenImportTab';
 
 function App() {
   const { activeTab, setActiveTab, user, authReady, logout } = useAppData();
@@ -45,8 +47,10 @@ function App() {
     { id: 'orders',       label: 'الطلبات',       icon: <ShoppingBag size={18} /> },
     { id: 'crm',          label: 'العملاء',       icon: <UsersRound size={18} /> },
     { id: 'import',       label: 'استيراد',       icon: <Upload size={18} /> },
+    { id: 'between', label: 'Between', icon: <Database size={18} /> }
     { id: 'cs_returns', label: 'مرتجعات CS', icon: <RotateCcw size={18} /> },
     { id: 'data_admin',   label: 'إدارة البيانات',icon: <ShieldAlert size={18} /> },
+    
   ];
 
   return (
@@ -101,6 +105,7 @@ function App() {
         {activeTab === 'orders'     && <OrdersTab />}
         {activeTab === 'crm'        && <CRMTab />}
         {activeTab === 'import'     && <ImportTab />}
+        {activeTab === 'between' && <BetweenImportTab />}
         {activeTab === 'cs_returns' && <CSReturnsTab />}
         {activeTab === 'data_admin' && <DataAdminTab />}
       </main>

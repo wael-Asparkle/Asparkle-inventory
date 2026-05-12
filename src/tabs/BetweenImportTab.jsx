@@ -49,9 +49,9 @@ function parseMovementRow(row) {
 
 // ── تحليل صف مخزون رسمي ───────────────────────────────────────
 function parseStockRow(row) {
-  const sku = String(row['SKU'] || row['Sku'] || '').trim();
+  const sku = String(row['Iteam sku'] || row['SKU'] || row['Sku'] || '').trim();
   const qty = parseFloat(row['Quantity'] || row['quantity'] || 0);
-  const name = String(row['NAME'] || row['Name'] || '').trim();
+  const name = String(row['Name'] || row['NAME'] || '').trim();
   if (!sku || isNaN(qty)) return null;
   return { sku, currentQty: qty, name };
 }
@@ -136,7 +136,14 @@ function OfficialStockImport() {
       const XLSX = await loadXLSX();
       const wb   = XLSX.read(await file.arrayBuffer(), { type: 'array' });
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
-      const parsedRows = rows.map(parseStockRow).filter(Boolean);
+      const rawRows = rows.map(parseStockRow).filter(Boolean);
+// دمج نفس الـ SKU من locations مختلفة
+const skuMap = {};
+rawRows.forEach((r) => {
+  if (!skuMap[r.sku]) skuMap[r.sku] = { sku: r.sku, name: r.name, currentQty: 0 };
+  skuMap[r.sku].currentQty += r.currentQty;
+});
+const parsedRows = Object.values(skuMap);
       setParsed(parsedRows);
       setStatus(STATUS.PREVIEW);
       setProgress('');

@@ -47,7 +47,7 @@ function App() {
     { id: 'orders',       label: 'الطلبات',       icon: <ShoppingBag size={18} /> },
     { id: 'crm',          label: 'العملاء',       icon: <UsersRound size={18} /> },
     { id: 'import',       label: 'استيراد',       icon: <Upload size={18} /> },
-    { id: 'between', label: 'Between', icon: <Database size={18} /> }
+    { id: 'between', label: 'Between', icon: <Database size={18} /> },
     { id: 'cs_returns', label: 'مرتجعات CS', icon: <RotateCcw size={18} /> },
     { id: 'data_admin',   label: 'إدارة البيانات',icon: <ShieldAlert size={18} /> },
     

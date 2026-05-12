@@ -23,18 +23,34 @@ function buildSnapshotAtDate(movements, beforeDate) {
     ? movements.filter((m) => m.date && m.date <= beforeDate + 'T23:59:59')
     : movements;
 
-  const sorted = [...filtered].sort((a, b) => new Date(a.date) - new Date(b.date));
+  const stock = {};
 
-  const snapshot = {};
-  sorted.forEach((m) => {
+  filtered.forEach((m) => {
     if (!m.sku) return;
-    if (m.movementType === 'DAMAGE') {
-      snapshot[m.sku] = (snapshot[m.sku] || 0) + m.qty; // qty سالب
-    } else {
-      snapshot[m.sku] = m.newQty ?? snapshot[m.sku];
+    if (!stock[m.sku]) stock[m.sku] = 0;
+
+    switch (m.movementType) {
+      case 'ADD':
+        stock[m.sku] += Math.abs(m.qty);
+        break;
+      case 'SALE':
+        stock[m.sku] -= Math.abs(m.qty);
+        break;
+      case 'RETURN':
+        stock[m.sku] += Math.abs(m.qty);
+        break;
+      case 'UPDATE':
+        stock[m.sku] += m.qty; // قد يكون موجب أو سالب
+        break;
+      case 'DAMAGE':
+        stock[m.sku] -= Math.abs(m.qty);
+        break;
+      default:
+        break;
     }
   });
-  return snapshot;
+
+  return stock;
 }
 
 // ── حساب الدامج لكل SKU ───────────────────────────────────────

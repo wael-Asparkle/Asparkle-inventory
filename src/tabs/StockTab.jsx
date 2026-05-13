@@ -41,6 +41,34 @@ function buildSnapshotAtDate(movements, beforeDate) {
   return stock;
 }
 
+// ── المخزون الافتتاحي (أول ADD لكل SKU) ─────────────────────
+function buildOpeningMap(movements) {
+  const opening = {};
+  const sorted = [...movements].sort((a, b) => new Date(a.date) - new Date(b.date));
+  sorted
+    .filter((m) => m.movementType === 'ADD')
+    .forEach((m) => {
+      if (!m.sku) return;
+      opening[m.sku] = (opening[m.sku] || 0) + Math.abs(m.qty);
+    });
+  return opening;
+}
+
+// ── حساب المرتجعات لكل SKU ────────────────────────────────────
+function buildReturnMap(movements, beforeDate) {
+  const filtered = beforeDate
+    ? movements.filter((m) => m.date && m.date <= beforeDate + 'T23:59:59')
+    : movements;
+
+  const returns = {};
+  filtered
+    .filter((m) => m.movementType === 'RETURN')
+    .forEach((m) => {
+      returns[m.sku] = (returns[m.sku] || 0) + Math.abs(m.qty);
+    });
+  return returns;
+}
+
 // ── حساب الدامج لكل SKU ───────────────────────────────────────
 function buildDamageMap(movements, beforeDate) {
   const filtered = beforeDate
@@ -62,7 +90,7 @@ export default function StockTab() {
   const [loading, setLoading]           = useState(true);
   const [selectedDate, setSelectedDate] = useState('');
   const [showDamageForm, setShowDamageForm] = useState(false);
-  const [damageEntry, setDamageEntry]   = useState({ sku: '', qty: '', note: '' });
+  const [damageEntry, setDamageEntry]   = useState({ sku: '', qty: '', note: '', date: '' });
   const [savingDamage, setSavingDamage] = useState(false);
   const [damageMsg, setDamageMsg]       = useState('');
 
@@ -74,28 +102,38 @@ export default function StockTab() {
     return () => unsub();
   }, []);
 
-  const snapshot  = useMemo(() => buildSnapshotAtDate(movements, selectedDate), [movements, selectedDate]);
-  const damageMap = useMemo(() => buildDamageMap(movements, selectedDate),      [movements, selectedDate]);
+  const snapshot   = useMemo(() => buildSnapshotAtDate(movements, selectedDate), [movements, selectedDate]);
+  const damageMap  = useMemo(() => buildDamageMap(movements, selectedDate),      [movements, selectedDate]);
+  const returnMap  = useMemo(() => buildReturnMap(movements, selectedDate),      [movements, selectedDate]);
+  const openingMap = useMemo(() => buildOpeningMap(movements),                   [movements]);
 
   const rows = useMemo(() => {
     return Object.keys(PRODUCT_NAMES).map((sku) => {
       const current = snapshot[sku] ?? 0;
       const damage  = damageMap[sku] ?? 0;
-      return { sku, name: PRODUCT_NAMES[sku], current, damage, net: current - damage };
+      const returns = returnMap[sku] ?? 0;
+      const opening = openingMap[sku] ?? 0;
+      return { sku, name: PRODUCT_NAMES[sku], opening, current, returns, damage, net: current - damage };
     }).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-  }, [snapshot, damageMap]);
+  }, [snapshot, damageMap, returnMap, openingMap]);
 
   const stats = useMemo(() => ({
-    total:  rows.reduce((a, b) => a + b.net, 0),
-    low:    rows.filter((r) => r.net > 0 && r.net <= 20).length,
-    zero:   rows.filter((r) => r.net <= 0).length,
-    damage: rows.reduce((a, b) => a + b.damage, 0),
+    total:   rows.reduce((a, b) => a + b.net, 0),
+    low:     rows.filter((r) => r.net > 0 && r.net <= 20).length,
+    zero:    rows.filter((r) => r.net <= 0).length,
+    damage:  rows.reduce((a, b) => a + b.damage, 0),
+    returns: rows.reduce((a, b) => a + b.returns, 0),
   }), [rows]);
 
   const handleSaveDamage = async () => {
     if (!damageEntry.sku || !damageEntry.qty) return;
     setSavingDamage(true);
     try {
+      // إذا أدخل المستخدم تاريخاً استخدمه، وإلا استخدم الآن
+      const damageDate = damageEntry.date
+        ? new Date(damageEntry.date + 'T12:00:00').toISOString()
+        : new Date().toISOString();
+
       await addDoc(stockMovementsCol(), {
         sku:          damageEntry.sku,
         movementType: 'DAMAGE',
@@ -104,11 +142,11 @@ export default function StockTab() {
         previousQty:  null,
         note:         damageEntry.note,
         source:       'Manual',
-        date:         new Date().toISOString(),
+        date:         damageDate,
         createdAt:    new Date().toISOString(),
       });
       setDamageMsg('تم حفظ الدامج ✅');
-      setDamageEntry({ sku: '', qty: '', note: '' });
+      setDamageEntry({ sku: '', qty: '', note: '', date: '' });
       setShowDamageForm(false);
       setTimeout(() => setDamageMsg(''), 3000);
     } catch (err) {
@@ -172,7 +210,7 @@ export default function StockTab() {
           <p className="text-rose-800 font-black text-sm mb-4 flex items-center gap-2">
             <AlertTriangle size={16} /> تسجيل دامج يدوي
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
               <label className="text-xs font-black text-slate-500 mb-1 block">المنتج</label>
               <select value={damageEntry.sku}
@@ -190,6 +228,12 @@ export default function StockTab() {
                 onChange={(e) => setDamageEntry({ ...damageEntry, qty: e.target.value })}
                 placeholder="مثال: 2"
                 className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-rose-300" />
+            </div>
+            <div>
+              <label className="text-xs font-black text-slate-500 mb-1 block">تاريخ التلف (اختياري)</label>
+              <input type="date" max={today} value={damageEntry.date}
+                onChange={(e) => setDamageEntry({ ...damageEntry, date: e.target.value })}
+                className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-300" />
             </div>
             <div>
               <label className="text-xs font-black text-slate-500 mb-1 block">السبب</label>
@@ -224,7 +268,7 @@ export default function StockTab() {
       ) : (
         <>
           {/* إحصائيات */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
             <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
               <p className="text-xs font-black text-slate-400 mb-2">إجمالي الصافي</p>
               <h3 className="text-2xl font-black text-slate-800">{stats.total.toLocaleString()}</h3>
@@ -238,29 +282,45 @@ export default function StockTab() {
               <h3 className="text-2xl font-black text-rose-600">{stats.zero}</h3>
             </div>
             <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
+              <p className="text-xs font-black text-slate-400 mb-2">إجمالي المرتجعات</p>
+              <h3 className="text-2xl font-black text-blue-600">{stats.returns.toLocaleString()}</h3>
+            </div>
+            <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
               <p className="text-xs font-black text-slate-400 mb-2">إجمالي الدامج</p>
               <h3 className="text-2xl font-black text-rose-400">{stats.damage}</h3>
             </div>
           </div>
 
           {/* جدول */}
-          <div className="bg-slate-50 rounded-2xl border border-slate-100 overflow-hidden">
+          <div className="bg-slate-50 rounded-2xl border border-slate-100 overflow-hidden overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-slate-100 text-slate-600">
                 <tr>
-                  <th className="p-3 text-right font-black">SKU</th>
-                  <th className="p-3 text-right font-black">اسم المنتج</th>
-                  <th className="p-3 text-right font-black">المخزون الحالي</th>
-                  <th className="p-3 text-right font-black">الدامج</th>
-                  <th className="p-3 text-right font-black">الصافي المتاح</th>
+                  <th className="p-3 text-right font-black whitespace-nowrap">SKU</th>
+                  <th className="p-3 text-right font-black whitespace-nowrap">اسم المنتج</th>
+                  <th className="p-3 text-right font-black whitespace-nowrap">الافتتاحي</th>
+                  <th className="p-3 text-right font-black whitespace-nowrap">المخزون الحالي</th>
+                  <th className="p-3 text-right font-black whitespace-nowrap">المرتجعات</th>
+                  <th className="p-3 text-right font-black whitespace-nowrap">الدامج</th>
+                  <th className="p-3 text-right font-black whitespace-nowrap">الصافي المتاح</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.sku} className="border-t hover:bg-white transition-colors">
                     <td className="p-3 font-mono text-xs text-slate-500">{row.sku}</td>
-                    <td className="p-3 font-bold text-slate-700">{row.name}</td>
-                    <td className="p-3 font-bold text-slate-600">{row.current}</td>
+                    <td className="p-3 font-bold text-slate-700 whitespace-nowrap">{row.name}</td>
+                    <td className="p-3 font-bold text-slate-400">
+                      {row.opening > 0
+                        ? row.opening.toLocaleString()
+                        : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="p-3 font-bold text-slate-600">{row.current.toLocaleString()}</td>
+                    <td className="p-3">
+                      {row.returns > 0
+                        ? <span className="bg-blue-50 text-blue-600 font-black px-2 py-0.5 rounded-lg text-xs">+{row.returns}</span>
+                        : <span className="text-slate-300 font-bold">—</span>}
+                    </td>
                     <td className="p-3">
                       {row.damage > 0
                         ? <span className="bg-rose-50 text-rose-600 font-black px-2 py-0.5 rounded-lg text-xs">-{row.damage}</span>

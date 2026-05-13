@@ -31,7 +31,7 @@ function parseMovementRow(row) {
 
   const rowNo  = parseInt(row['NO']) || 0;
   const movementType = resolveMovementType(status);
-  const direction = movementType === 'RETURN' || movementType === 'ADD' ? 1 : -1;
+  const direction = movementType === 'RETURN' || movementType === 'ADD' || movementType === 'UPDATE' ? 1 : -1;
 
   return {
     rowNo,

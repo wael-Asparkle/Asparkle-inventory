@@ -9,7 +9,7 @@ const stockMovementsCol = () => collection(db, 'artifacts', appId, 'public', 'da
 const PRODUCT_NAMES = {
   '9000901': 'اسباركل الأخضر',
   '9000902': 'سجنتشر',
-  '9000903': 'بكج عينات مجاني',
+  '09000903': 'بكج عينات مجاني',
   '9000904': 'Moon Spark',
   '9000905': 'Spark Duo',
   '9000906': 'Spark Glow',

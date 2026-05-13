@@ -283,13 +283,11 @@ function MovementsImport() {
       setProgress('جاري فحص التكرار...');
       const snap = await getDocs(movementsCol());
       const existingKeys = new Set(
-        snap.docs.map((d) => {
-          const m = d.data();
-          return (m.movementType === 'ADD' || m.movementType === 'UPDATE')
-            ? `${m.rowNo}_${m.sku}`
-            : `${m.awb}_${m.sku}`;
-        }).filter(Boolean)
-      );
+  snap.docs.map((d) => {
+    const m = d.data();
+    return `${m.rowNo}_${m.sku}`;  // كل صف له معرف فريد بالـ rowNo
+  }).filter(Boolean)
+);
 
       setExisting(existingKeys);
       setParsed(parsedRows);

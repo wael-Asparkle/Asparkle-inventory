@@ -306,16 +306,8 @@ function MovementsImport() {
     if (f) handleFile(f);
   };
 
-  const newRows = parsed.filter((r) => {
-    const key = (r.movementType === 'ADD' || r.movementType === 'UPDATE')
-      ? `${r.rowNo}_${r.sku}` : `${r.awb}_${r.sku}`;
-    return !existing.has(key);
-  });
-  const dupRows = parsed.filter((r) => {
-    const key = (r.movementType === 'ADD' || r.movementType === 'UPDATE')
-      ? `${r.rowNo}_${r.sku}` : `${r.awb}_${r.sku}`;
-    return existing.has(key);
-  });
+  const newRows = parsed.filter((r) => !existing.has(`${r.rowNo}_${r.sku}`));
+  const dupRows = parsed.filter((r) => existing.has(`${r.rowNo}_${r.sku}`));
 
   const stats = {
     sales:   newRows.filter((r) => r.movementType === 'SALE').length,

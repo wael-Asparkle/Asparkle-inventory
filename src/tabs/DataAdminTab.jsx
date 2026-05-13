@@ -151,6 +151,21 @@ export default function DataAdminTab() {
 >
   حذف مرتجعات CS
 </button>
+
+<button
+  onClick={() => deleteCollectionItems('stock_movements', 'حركات المخزون')}
+  className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-4 rounded-2xl"
+>
+  حذف حركات المخزون
+</button>
+
+<button
+  onClick={() => deleteCollectionItems('stock_snapshot', 'Stock Snapshot')}
+  className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-4 rounded-2xl"
+>
+  حذف Stock Snapshot
+</button>
+        
         <button
           onClick={resetOpeningStock}
           className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-2xl md:col-span-2"

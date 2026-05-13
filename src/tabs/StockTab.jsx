@@ -23,30 +23,18 @@ function buildSnapshotAtDate(movements, beforeDate) {
     ? movements.filter((m) => m.date && m.date <= beforeDate + 'T23:59:59')
     : movements;
 
+  const sorted = [...filtered].sort((a, b) => new Date(a.date) - new Date(b.date));
   const stock = {};
 
-  filtered.forEach((m) => {
+  sorted.forEach((m) => {
     if (!m.sku) return;
     if (!stock[m.sku]) stock[m.sku] = 0;
-
     switch (m.movementType) {
-      case 'ADD':
-        stock[m.sku] += Math.abs(m.qty);
-        break;
-      case 'SALE':
-        stock[m.sku] -= Math.abs(m.qty);
-        break;
-      case 'RETURN':
-        stock[m.sku] += Math.abs(m.qty);
-        break;
-      case 'UPDATE':
-        stock[m.sku] += m.qty; // قد يكون موجب أو سالب
-        break;
-      case 'DAMAGE':
-        stock[m.sku] -= Math.abs(m.qty);
-        break;
-      default:
-        break;
+      case 'ADD':    stock[m.sku] += Math.abs(m.qty); break;
+      case 'SALE':   stock[m.sku] -= Math.abs(m.qty); break;
+      case 'RETURN': stock[m.sku] += Math.abs(m.qty); break;
+      case 'UPDATE': stock[m.sku] += m.qty; break;
+      case 'DAMAGE': stock[m.sku] -= Math.abs(m.qty); break;
     }
   });
 

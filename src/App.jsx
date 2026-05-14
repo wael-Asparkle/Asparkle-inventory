@@ -8,8 +8,11 @@ import {
   ShieldAlert,
   Upload,
   RotateCcw,
-  LogOut, 
-  Database
+  Database,
+  LogOut,
+  ChevronDown,
+  ChevronUp,
+  CheckCircle,
 } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
 import useAppData from './hooks/useAppData';

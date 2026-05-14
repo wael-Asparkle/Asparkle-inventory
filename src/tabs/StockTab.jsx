@@ -66,10 +66,20 @@ function buildTypeMap(movements, type, beforeDate) {
 function buildDayEvents(movements, date) {
   if (!date) return { damage: [], missing: [], returns: [] };
   const day = movements.filter((m) => m.date && m.date.slice(0, 10) === date);
+
+  const groupBySku = (arr) => {
+    const map = {};
+    arr.forEach((m) => {
+      if (!map[m.sku]) map[m.sku] = { ...m, qty: 0 };
+      map[m.sku].qty += Math.abs(m.qty);
+    });
+    return Object.values(map);
+  };
+
   return {
-    damage:  day.filter((m) => m.movementType === 'DAMAGE'),
-    missing: day.filter((m) => m.movementType === 'MISSING'),
-    returns: day.filter((m) => m.movementType === 'RETURN'),
+    damage:  groupBySku(day.filter((m) => m.movementType === 'DAMAGE')),
+    missing: groupBySku(day.filter((m) => m.movementType === 'MISSING')),
+    returns: groupBySku(day.filter((m) => m.movementType === 'RETURN')),
   };
 }
 

@@ -327,8 +327,27 @@ const [activeDamageNote, setActiveDamageNote]     = useState('');
                   className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-300" />
               )},
               { label: 'السبب', el: (
-                <input type="text" value={damageEntry.note} onChange={(e) => setDamageEntry({ ...damageEntry, note: e.target.value })}
-                  placeholder="مثال: مكسور أثناء التخزين" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-rose-300" />
+                <div className="flex flex-col gap-2">
+                  <select
+                    value={['تسريب','مكسور','تلف داخلي','مرتجع تالف','دامج شركة الشحن','خروج العطر من الفوم الداخلي','أخرى'].includes(damageEntry.note) || damageEntry.note === '' ? damageEntry.note : 'أخرى'}
+                    onChange={(e) => setDamageEntry({ ...damageEntry, note: e.target.value === 'أخرى' ? '' : e.target.value })}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-rose-300">
+                    <option value="">اختر السبب</option>
+                    <option value="تسريب">تسريب</option>
+                    <option value="مكسور">مكسور</option>
+                    <option value="تلف داخلي">تلف داخلي</option>
+                    <option value="مرتجع تالف">مرتجع تالف</option>
+                    <option value="دامج شركة الشحن">دامج شركة الشحن</option>
+                    <option value="خروج العطر من الفوم الداخلي">خروج العطر من الفوم الداخلي</option>
+                    <option value="أخرى">أخرى (كتابة حرة)</option>
+                  </select>
+                  {!['تسريب','مكسور','تلف داخلي','مرتجع تالف','دامج شركة الشحن','خروج العطر من الفوم الداخلي',''].includes(damageEntry.note) && (
+                    <input type="text" value={damageEntry.note}
+                      onChange={(e) => setDamageEntry({ ...damageEntry, note: e.target.value })}
+                      placeholder="اكتب السبب..."
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-rose-300" />
+                  )}
+                </div>
               )},
             ].map(({ label, el }) => (
               <div key={label}><label className="text-xs font-black text-slate-500 mb-1 block">{label}</label>{el}</div>

@@ -125,7 +125,8 @@ export default function StockTab() {
   const [msg, setMsg]                   = useState('');
 
   const [compensatingId, setCompensatingId]         = useState(null);
-  const [compensationAmount, setCompensationAmount] = useState('');
+const [compensationAmount, setCompensationAmount] = useState('');
+const [activeDamageNote, setActiveDamageNote]     = useState('');
 
   useEffect(() => {
     const unsub = onSnapshot(stockMovementsCol(), (snap) => {

@@ -416,36 +416,30 @@ const [activeDamageNote, setActiveDamageNote]     = useState('');
             {/* تفصيل الدامج */}
             <div>
               <p className="text-xs font-black text-rose-500 mb-3">تفصيل الدامج بالمنتج</p>
-
-              {/* فلتر الملاحظات */}
               {(() => {
                 const damageMovements = movements.filter((m) => m.movementType === 'DAMAGE');
                 const allNotes = [...new Set(damageMovements.map((m) => m.note).filter(Boolean))];
-                const [activeNote, setActiveNote] = React.useState('');
-                const filtered = activeNote
-                  ? damageMovements.filter((m) => m.note === activeNote)
+                const filtered = activeDamageNote
+                  ? damageMovements.filter((m) => m.note === activeDamageNote)
                   : damageMovements;
-
-                // تجميع بالمنتج
                 const grouped = {};
                 filtered.forEach((m) => {
                   if (!grouped[m.sku]) grouped[m.sku] = 0;
                   grouped[m.sku] += Math.abs(m.qty);
                 });
-
                 return (
                   <>
                     {allNotes.length > 0 && (
                       <div className="flex flex-wrap gap-2 mb-3">
                         <button
-                          onClick={() => setActiveNote('')}
-                          className={`text-xs font-black px-3 py-1 rounded-lg transition-all ${!activeNote ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`}>
+                          onClick={() => setActiveDamageNote('')}
+                          className={`text-xs font-black px-3 py-1 rounded-lg transition-all ${!activeDamageNote ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`}>
                           الكل
                         </button>
                         {allNotes.map((note) => (
                           <button key={note}
-                            onClick={() => setActiveNote(activeNote === note ? '' : note)}
-                            className={`text-xs font-black px-3 py-1 rounded-lg transition-all ${activeNote === note ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`}>
+                            onClick={() => setActiveDamageNote(activeDamageNote === note ? '' : note)}
+                            className={`text-xs font-black px-3 py-1 rounded-lg transition-all ${activeDamageNote === note ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`}>
                             {note}
                           </button>
                         ))}

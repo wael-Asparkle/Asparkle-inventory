@@ -266,7 +266,7 @@ export default function StockTab() {
     returns: returnMap[sku]  ?? 0,
     damage:  damageMap[sku]  ?? 0,
     missing: missingMap[sku] ?? 0,
-    net:     (snapshot[sku] ?? 0) - (damageMap[sku] ?? 0),
+    net:     (snapshot[sku] ?? 0),
   })).sort((a, b) => a.name.localeCompare(b.name, 'ar')), [snapshot, openingMap, returnMap, damageMap, missingMap]);
 
   const stats = useMemo(() => ({

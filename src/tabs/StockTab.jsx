@@ -41,9 +41,7 @@ function buildSnapshotAtDate(movements, beforeDate) {
       case 'ADD':     stock[m.sku] += Math.abs(m.qty); break;
       case 'SALE':    stock[m.sku] -= Math.abs(m.qty); break;
       case 'RETURN':  stock[m.sku] += Math.abs(m.qty); break;
-      case 'UPDATE':  stock[m.sku] += m.qty; break;
-      case 'DAMAGE':  stock[m.sku] -= Math.abs(m.qty); break;
-      case 'MISSING': stock[m.sku] -= Math.abs(m.qty); break;
+      case 'UPDATE':  stock[m.sku] += m.qty; break;      
     }
   });
   return stock;
@@ -266,7 +264,7 @@ export default function StockTab() {
     returns: returnMap[sku]  ?? 0,
     damage:  damageMap[sku]  ?? 0,
     missing: missingMap[sku] ?? 0,
-    net:     (snapshot[sku] ?? 0),
+    net: (snapshot[sku] ?? 0) - (damageMap[sku] ?? 0) - (missingMap[sku] ?? 0),
   })).sort((a, b) => a.name.localeCompare(b.name, 'ar')), [snapshot, openingMap, returnMap, damageMap, missingMap]);
 
   const stats = useMemo(() => ({

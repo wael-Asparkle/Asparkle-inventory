@@ -415,15 +415,55 @@ export default function StockTab() {
             {/* تفصيل الدامج */}
             <div>
               <p className="text-xs font-black text-rose-500 mb-3">تفصيل الدامج بالمنتج</p>
-              <div className="space-y-2">
-                {rows.filter((r) => r.damage > 0).map((r) => (
-                  <div key={r.sku} className="flex items-center gap-3 bg-white rounded-xl px-4 py-2 border border-rose-100">
-                    <span className="flex-1 text-sm font-bold text-slate-700">{r.name}</span>
-                    <span className="bg-rose-100 text-rose-600 font-black text-xs px-3 py-1 rounded-lg">{r.damage} وحدة</span>
-                  </div>
-                ))}
-                {rows.every((r) => r.damage === 0) && <p className="text-xs text-slate-400">لا يوجد دامج مسجّل</p>}
-              </div>
+
+              {/* فلتر الملاحظات */}
+              {(() => {
+                const damageMovements = movements.filter((m) => m.movementType === 'DAMAGE');
+                const allNotes = [...new Set(damageMovements.map((m) => m.note).filter(Boolean))];
+                const [activeNote, setActiveNote] = React.useState('');
+                const filtered = activeNote
+                  ? damageMovements.filter((m) => m.note === activeNote)
+                  : damageMovements;
+
+                // تجميع بالمنتج
+                const grouped = {};
+                filtered.forEach((m) => {
+                  if (!grouped[m.sku]) grouped[m.sku] = 0;
+                  grouped[m.sku] += Math.abs(m.qty);
+                });
+
+                return (
+                  <>
+                    {allNotes.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        <button
+                          onClick={() => setActiveNote('')}
+                          className={`text-xs font-black px-3 py-1 rounded-lg transition-all ${!activeNote ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`}>
+                          الكل
+                        </button>
+                        {allNotes.map((note) => (
+                          <button key={note}
+                            onClick={() => setActiveNote(activeNote === note ? '' : note)}
+                            className={`text-xs font-black px-3 py-1 rounded-lg transition-all ${activeNote === note ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`}>
+                            {note}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {Object.entries(grouped).map(([sku, qty]) => (
+                        <div key={sku} className="flex items-center gap-3 bg-white rounded-xl px-4 py-2 border border-rose-100">
+                          <span className="flex-1 text-sm font-bold text-slate-700">{PRODUCT_NAMES[sku] || sku}</span>
+                          <span className="bg-rose-100 text-rose-600 font-black text-xs px-3 py-1 rounded-lg">{qty} وحدة</span>
+                        </div>
+                      ))}
+                      {Object.keys(grouped).length === 0 && (
+                        <p className="text-xs text-slate-400">لا يوجد دامج مسجّل</p>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
             {/* سجل المفقودات */}
             <div>

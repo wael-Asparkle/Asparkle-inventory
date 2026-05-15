@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   PackageOpen, RefreshCw, Clock, AlertTriangle, Save, X, Plus,
-  Download, BarChart2, ChevronDown, ChevronUp, CheckCircle
+  Download, BarChart2, ChevronDown, ChevronUp, CheckCircle, Pencil
 } from 'lucide-react';
 import { collection, onSnapshot, addDoc, doc, updateDoc } from 'firebase/firestore';
 import { db, appId } from '../config/firebase';
@@ -19,7 +19,15 @@ const PRODUCT_NAMES = {
   '9000909':  'Spark Ash',
 };
 
-// ─── Snapshot حتى تاريخ معين ────────────────────────────────
+const DAMAGE_REASONS = [
+  'تسريب',
+  'مكسور',
+  'تلف داخلي',
+  'مرتجع تالف',
+  'دامج شركة الشحن',
+  'خروج العطر من الفوم الداخلي',
+];
+
 function buildSnapshotAtDate(movements, beforeDate) {
   const filtered = beforeDate
     ? movements.filter((m) => m.date && m.date <= beforeDate + 'T23:59:59')
@@ -66,7 +74,6 @@ function buildTypeMap(movements, type, beforeDate) {
 function buildDayEvents(movements, date) {
   if (!date) return { damage: [], missing: [], returns: [] };
   const day = movements.filter((m) => m.date && m.date.slice(0, 10) === date);
-
   const groupBySku = (arr) => {
     const map = {};
     arr.forEach((m) => {
@@ -75,7 +82,6 @@ function buildDayEvents(movements, date) {
     });
     return Object.values(map);
   };
-
   return {
     damage:  groupBySku(day.filter((m) => m.movementType === 'DAMAGE')),
     missing: groupBySku(day.filter((m) => m.movementType === 'MISSING')),
@@ -88,27 +94,126 @@ function exportCSV(rows, missingRecords) {
     ['SKU', 'اسم المنتج', 'الافتتاحي', 'المخزون الحالي', 'المرتجعات', 'الدامج', 'المفقودات', 'الصافي المتاح'],
     ...rows.map((r) => [r.sku, r.name, r.opening, r.current, r.returns, r.damage, r.missing, r.net]),
   ].map((r) => r.join(',')).join('\n');
-
   const missingLines = [
     '', 'سجل المفقودات',
     ['التاريخ', 'SKU', 'المنتج', 'الكمية', 'AWB', 'الحالة', 'مبلغ التعويض', 'ملاحظات'],
     ...missingRecords.map((m) => [
-      m.date?.slice(0, 10) || '',
-      m.sku,
-      PRODUCT_NAMES[m.sku] || m.sku,
-      Math.abs(m.qty),
-      m.awb || '',
+      m.date?.slice(0, 10) || '', m.sku, PRODUCT_NAMES[m.sku] || m.sku,
+      Math.abs(m.qty), m.awb || '',
       m.status === 'compensated' ? 'تم التعويض' : 'بانتظار التعويض',
-      m.compensationAmount || '',
-      m.note || '',
+      m.compensationAmount || '', m.note || '',
     ]),
   ].map((r) => Array.isArray(r) ? r.join(',') : r).join('\n');
-
   const blob = new Blob(['\uFEFF' + stockLines + '\n' + missingLines], { type: 'text/csv;charset=utf-8' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
   a.href = url; a.download = `stock-report-${new Date().toISOString().slice(0,10)}.csv`;
   a.click(); URL.revokeObjectURL(url);
+}
+
+// ─── مكوّن سجل دامج واحد مع تعديل ─────────────────────────
+function DamageRecord({ m, onSave, showMsg }) {
+  const [editing, setEditing]   = useState(false);
+  const [form, setForm]         = useState({
+    sku:  m.sku,
+    qty:  Math.abs(m.qty),
+    note: m.note || '',
+    date: m.date?.slice(0, 10) || '',
+  });
+  const [saving, setSaving] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+  const isCustomNote = form.note && !DAMAGE_REASONS.includes(form.note);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'stock_movements', m.id), {
+        sku:  form.sku,
+        qty:  -Math.abs(parseInt(form.qty)),
+        note: form.note,
+        date: form.date ? new Date(form.date + 'T12:00:00').toISOString() : m.date,
+        updatedAt: new Date().toISOString(),
+      });
+      showMsg('تم التعديل ✅');
+      setEditing(false);
+    } catch { showMsg('حدث خطأ ❌'); }
+    finally { setSaving(false); }
+  };
+
+  if (editing) {
+    return (
+      <div className="bg-rose-50 rounded-xl px-4 py-3 border border-rose-200">
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div>
+            <label className="text-xs font-black text-slate-500 mb-1 block">المنتج</label>
+            <select value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })}
+              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-rose-300">
+              {Object.entries(PRODUCT_NAMES).map(([s, n]) => <option key={s} value={s}>{n}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-black text-slate-500 mb-1 block">الكمية</label>
+            <input type="number" min="1" value={form.qty}
+              onChange={(e) => setForm({ ...form, qty: e.target.value })}
+              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-rose-300" />
+          </div>
+          <div>
+            <label className="text-xs font-black text-slate-500 mb-1 block">التاريخ</label>
+            <input type="date" max={today} value={form.date}
+              onChange={(e) => setForm({ ...form, date: e.target.value })}
+              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-300" />
+          </div>
+          <div>
+            <label className="text-xs font-black text-slate-500 mb-1 block">السبب</label>
+            <select
+              value={DAMAGE_REASONS.includes(form.note) || form.note === '' ? form.note : 'أخرى'}
+              onChange={(e) => setForm({ ...form, note: e.target.value === 'أخرى' ? '' : e.target.value })}
+              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-rose-300">
+              <option value="">اختر السبب</option>
+              {DAMAGE_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+              <option value="أخرى">أخرى (كتابة حرة)</option>
+            </select>
+          </div>
+        </div>
+        {(!DAMAGE_REASONS.includes(form.note) && form.note !== '') || isCustomNote ? (
+          <input type="text" value={form.note}
+            onChange={(e) => setForm({ ...form, note: e.target.value })}
+            placeholder="اكتب السبب..."
+            className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold mb-2 focus:outline-none focus:ring-2 focus:ring-rose-300" />
+        ) : null}
+        <div className="flex gap-2 justify-end mt-1">
+          <button onClick={() => setEditing(false)}
+            className="text-xs font-bold text-slate-400 hover:text-slate-600 px-2">إلغاء</button>
+          <button onClick={handleSave} disabled={!form.sku || !form.qty || saving}
+            className={`flex items-center gap-1 text-xs font-black px-3 py-1.5 rounded-lg transition-all ${
+              form.sku && form.qty && !saving ? 'bg-rose-600 text-white hover:bg-rose-700' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}>
+            <Save size={12} /> {saving ? 'جاري الحفظ...' : 'حفظ التعديل'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl px-4 py-3 border border-rose-100">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-sm font-black text-slate-700">{PRODUCT_NAMES[m.sku] || m.sku}</span>
+        <div className="flex items-center gap-2">
+          <span className="bg-rose-100 text-rose-600 font-black text-xs px-2 py-0.5 rounded-lg">
+            -{Math.abs(m.qty)} وحدة
+          </span>
+          <button onClick={() => setEditing(true)}
+            className="flex items-center gap-1 text-xs font-black text-slate-400 hover:text-indigo-600 transition-colors px-1">
+            <Pencil size={12} /> تعديل
+          </button>
+        </div>
+      </div>
+      <div className="flex items-center gap-3 text-xs text-slate-400">
+        {m.date && <span>{m.date.slice(0,10)}</span>}
+        {m.note && <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded-md font-bold">{m.note}</span>}
+      </div>
+    </div>
+  );
 }
 
 // ════════════════════════════════════════════════════════════
@@ -116,7 +221,7 @@ export default function StockTab() {
   const [movements, setMovements]         = useState([]);
   const [loading, setLoading]             = useState(true);
   const [selectedDate, setSelectedDate]   = useState('');
-  const [activeForm, setActiveForm]       = useState(null); // 'damage' | 'missing' | null
+  const [activeForm, setActiveForm]       = useState(null);
   const [showDashboard, setShowDashboard] = useState(false);
 
   const [damageEntry, setDamageEntry]   = useState({ sku: '', qty: '', note: '', date: '' });
@@ -125,8 +230,8 @@ export default function StockTab() {
   const [msg, setMsg]                   = useState('');
 
   const [compensatingId, setCompensatingId]         = useState(null);
-const [compensationAmount, setCompensationAmount] = useState('');
-const [activeDamageNote, setActiveDamageNote]     = useState('');
+  const [compensationAmount, setCompensationAmount] = useState('');
+  const [activeDamageNote, setActiveDamageNote]     = useState('');
 
   useEffect(() => {
     const unsub = onSnapshot(stockMovementsCol(), (snap) => {
@@ -145,6 +250,11 @@ const [activeDamageNote, setActiveDamageNote]     = useState('');
 
   const missingRecords = useMemo(
     () => movements.filter((m) => m.movementType === 'MISSING').sort((a, b) => new Date(b.date) - new Date(a.date)),
+    [movements]
+  );
+
+  const damageRecords = useMemo(
+    () => movements.filter((m) => m.movementType === 'DAMAGE').sort((a, b) => new Date(b.date) - new Date(a.date)),
     [movements]
   );
 
@@ -282,9 +392,9 @@ const [activeDamageNote, setActiveDamageNote]     = useState('');
       {selectedDate && (dayEvents.damage.length > 0 || dayEvents.missing.length > 0 || dayEvents.returns.length > 0) && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           {[
-            { title: `دامج في ${selectedDate}`, items: dayEvents.damage,  color: 'rose',  sign: '-' },
-            { title: `مفقودات في ${selectedDate}`, items: dayEvents.missing, color: 'amber', sign: '-' },
-            { title: `مرتجعات في ${selectedDate}`, items: dayEvents.returns, color: 'blue',  sign: '+' },
+            { title: `دامج في ${selectedDate}`,      items: dayEvents.damage,  color: 'rose',  sign: '-' },
+            { title: `مفقودات في ${selectedDate}`,   items: dayEvents.missing, color: 'amber', sign: '-' },
+            { title: `مرتجعات في ${selectedDate}`,   items: dayEvents.returns, color: 'blue',  sign: '+' },
           ].map(({ title, items, color, sign }) => (
             <div key={title} className={`bg-${color}-50 border border-${color}-200 rounded-2xl p-4`}>
               <p className={`text-xs font-black text-${color}-600 mb-3 flex items-center gap-1`}>
@@ -293,9 +403,9 @@ const [activeDamageNote, setActiveDamageNote]     = useState('');
               {items.length === 0
                 ? <p className="text-xs text-slate-400">لا يوجد</p>
                 : items.map((m) => (
-                  <div key={m.id} className="flex justify-between text-xs font-bold mb-1">
+                  <div key={m.sku} className="flex justify-between text-xs font-bold mb-1">
                     <span className="text-slate-600">{PRODUCT_NAMES[m.sku] || m.sku}</span>
-                    <span className={`text-${color}-600`}>{sign}{Math.abs(m.qty)}</span>
+                    <span className={`text-${color}-600`}>{sign}{m.qty}</span>
                   </div>
                 ))}
             </div>
@@ -319,29 +429,27 @@ const [activeDamageNote, setActiveDamageNote]     = useState('');
                 </select>
               )},
               { label: 'الكمية التالفة', el: (
-                <input type="number" min="1" value={damageEntry.qty} onChange={(e) => setDamageEntry({ ...damageEntry, qty: e.target.value })}
-                  placeholder="مثال: 2" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-rose-300" />
+                <input type="number" min="1" value={damageEntry.qty}
+                  onChange={(e) => setDamageEntry({ ...damageEntry, qty: e.target.value })}
+                  placeholder="مثال: 2"
+                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-rose-300" />
               )},
               { label: 'تاريخ التلف (اختياري)', el: (
-                <input type="date" max={today} value={damageEntry.date} onChange={(e) => setDamageEntry({ ...damageEntry, date: e.target.value })}
+                <input type="date" max={today} value={damageEntry.date}
+                  onChange={(e) => setDamageEntry({ ...damageEntry, date: e.target.value })}
                   className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-300" />
               )},
               { label: 'السبب', el: (
                 <div className="flex flex-col gap-2">
                   <select
-                    value={['تسريب','مكسور','تلف داخلي','مرتجع تالف','دامج شركة الشحن','خروج العطر من الفوم الداخلي','أخرى'].includes(damageEntry.note) || damageEntry.note === '' ? damageEntry.note : 'أخرى'}
+                    value={DAMAGE_REASONS.includes(damageEntry.note) || damageEntry.note === '' ? damageEntry.note : 'أخرى'}
                     onChange={(e) => setDamageEntry({ ...damageEntry, note: e.target.value === 'أخرى' ? '' : e.target.value })}
                     className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-rose-300">
                     <option value="">اختر السبب</option>
-                    <option value="تسريب">تسريب</option>
-                    <option value="مكسور">مكسور</option>
-                    <option value="تلف داخلي">تلف داخلي</option>
-                    <option value="مرتجع تالف">مرتجع تالف</option>
-                    <option value="دامج شركة الشحن">دامج شركة الشحن</option>
-                    <option value="خروج العطر من الفوم الداخلي">خروج العطر من الفوم الداخلي</option>
+                    {DAMAGE_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
                     <option value="أخرى">أخرى (كتابة حرة)</option>
                   </select>
-                  {!['تسريب','مكسور','تلف داخلي','مرتجع تالف','دامج شركة الشحن','خروج العطر من الفوم الداخلي',''].includes(damageEntry.note) && (
+                  {!DAMAGE_REASONS.includes(damageEntry.note) && damageEntry.note !== '' && (
                     <input type="text" value={damageEntry.note}
                       onChange={(e) => setDamageEntry({ ...damageEntry, note: e.target.value })}
                       placeholder="اكتب السبب..."
@@ -379,20 +487,27 @@ const [activeDamageNote, setActiveDamageNote]     = useState('');
                 </select>
               )},
               { label: 'الكمية المفقودة', el: (
-                <input type="number" min="1" value={missingEntry.qty} onChange={(e) => setMissingEntry({ ...missingEntry, qty: e.target.value })}
-                  placeholder="مثال: 1" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                <input type="number" min="1" value={missingEntry.qty}
+                  onChange={(e) => setMissingEntry({ ...missingEntry, qty: e.target.value })}
+                  placeholder="مثال: 1"
+                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-amber-300" />
               )},
               { label: 'رقم AWB شركة الشحن', el: (
-                <input type="text" value={missingEntry.awb} onChange={(e) => setMissingEntry({ ...missingEntry, awb: e.target.value })}
-                  placeholder="رقم الشحنة" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                <input type="text" value={missingEntry.awb}
+                  onChange={(e) => setMissingEntry({ ...missingEntry, awb: e.target.value })}
+                  placeholder="رقم الشحنة"
+                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-amber-300" />
               )},
               { label: 'تاريخ الاكتشاف (اختياري)', el: (
-                <input type="date" max={today} value={missingEntry.date} onChange={(e) => setMissingEntry({ ...missingEntry, date: e.target.value })}
+                <input type="date" max={today} value={missingEntry.date}
+                  onChange={(e) => setMissingEntry({ ...missingEntry, date: e.target.value })}
                   className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-300" />
               )},
               { label: 'ملاحظات', el: (
-                <input type="text" value={missingEntry.note} onChange={(e) => setMissingEntry({ ...missingEntry, note: e.target.value })}
-                  placeholder="مثال: مرتجع ناقص منتج" className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                <input type="text" value={missingEntry.note}
+                  onChange={(e) => setMissingEntry({ ...missingEntry, note: e.target.value })}
+                  placeholder="مثال: مرتجع ناقص منتج"
+                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-amber-300" />
               )},
             ].map(({ label, el }) => (
               <div key={label}><label className="text-xs font-black text-slate-500 mb-1 block">{label}</label>{el}</div>
@@ -416,13 +531,16 @@ const [activeDamageNote, setActiveDamageNote]     = useState('');
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             {[
-              { label: 'إجمالي الدامج',     value: stats.damage,         sub: 'وحدة تالفة',          color: 'rose' },
-              { label: 'إجمالي المفقودات',  value: stats.missing,        sub: 'وحدة مفقودة',          color: 'amber' },
-              { label: 'بانتظار التعويض',   value: stats.pendingMissing, sub: 'حالة لم تُسوَّ',        color: 'amber' },
-              { label: 'تم التعويض',
+              { label: 'إجمالي الدامج',    value: stats.damage,         sub: 'وحدة تالفة',     color: 'rose' },
+              { label: 'إجمالي المفقودات', value: stats.missing,        sub: 'وحدة مفقودة',    color: 'amber' },
+              { label: 'بانتظار التعويض',  value: stats.pendingMissing, sub: 'حالة لم تُسوَّ', color: 'amber' },
+              {
+                label: 'تم التعويض',
                 value: missingRecords.filter((m) => m.status === 'compensated').length,
-                sub: missingRecords.filter((m) => m.status === 'compensated').reduce((a, b) => a + (b.compensationAmount || 0), 0).toLocaleString() + ' ريال',
-                color: 'emerald' },
+                sub: missingRecords.filter((m) => m.status === 'compensated')
+                  .reduce((a, b) => a + (b.compensationAmount || 0), 0).toLocaleString() + ' ريال',
+                color: 'emerald',
+              },
             ].map(({ label, value, sub, color }) => (
               <div key={label} className={`bg-white rounded-2xl p-4 border border-${color}-100`}>
                 <p className={`text-xs font-black text-${color}-500 mb-1`}>{label}</p>
@@ -431,27 +549,23 @@ const [activeDamageNote, setActiveDamageNote]     = useState('');
               </div>
             ))}
           </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* تفصيل الدامج */}
+
+            {/* سجل الدامج مع تعديل */}
             <div>
-              <p className="text-xs font-black text-rose-500 mb-3">تفصيل الدامج بالمنتج</p>
+              <p className="text-xs font-black text-rose-500 mb-3">سجل الدامج</p>
+              {/* فلتر الملاحظات */}
               {(() => {
-                const damageMovements = movements.filter((m) => m.movementType === 'DAMAGE');
-                const allNotes = [...new Set(damageMovements.map((m) => m.note).filter(Boolean))];
+                const allNotes = [...new Set(damageRecords.map((m) => m.note).filter(Boolean))];
                 const filtered = activeDamageNote
-                  ? damageMovements.filter((m) => m.note === activeDamageNote)
-                  : damageMovements;
-                const grouped = {};
-                filtered.forEach((m) => {
-                  if (!grouped[m.sku]) grouped[m.sku] = 0;
-                  grouped[m.sku] += Math.abs(m.qty);
-                });
+                  ? damageRecords.filter((m) => m.note === activeDamageNote)
+                  : damageRecords;
                 return (
                   <>
                     {allNotes.length > 0 && (
                       <div className="flex flex-wrap gap-2 mb-3">
-                        <button
-                          onClick={() => setActiveDamageNote('')}
+                        <button onClick={() => setActiveDamageNote('')}
                           className={`text-xs font-black px-3 py-1 rounded-lg transition-all ${!activeDamageNote ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`}>
                           الكل
                         </button>
@@ -464,21 +578,17 @@ const [activeDamageNote, setActiveDamageNote]     = useState('');
                         ))}
                       </div>
                     )}
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
-                      {Object.entries(grouped).map(([sku, qty]) => (
-                        <div key={sku} className="flex items-center gap-3 bg-white rounded-xl px-4 py-2 border border-rose-100">
-                          <span className="flex-1 text-sm font-bold text-slate-700">{PRODUCT_NAMES[sku] || sku}</span>
-                          <span className="bg-rose-100 text-rose-600 font-black text-xs px-3 py-1 rounded-lg">{qty} وحدة</span>
-                        </div>
+                    <div className="space-y-2 max-h-72 overflow-y-auto">
+                      {filtered.length === 0 && <p className="text-xs text-slate-400">لا يوجد دامج مسجّل</p>}
+                      {filtered.map((m) => (
+                        <DamageRecord key={m.id} m={m} showMsg={showMsg} />
                       ))}
-                      {Object.keys(grouped).length === 0 && (
-                        <p className="text-xs text-slate-400">لا يوجد دامج مسجّل</p>
-                      )}
                     </div>
                   </>
                 );
               })()}
             </div>
+
             {/* سجل المفقودات */}
             <div>
               <p className="text-xs font-black text-amber-500 mb-3">سجل المفقودات</p>
@@ -534,7 +644,6 @@ const [activeDamageNote, setActiveDamageNote]     = useState('');
         </div>
       ) : (
         <>
-          {/* إحصائيات */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
             {[
               { label: 'إجمالي الصافي', value: stats.total.toLocaleString(), color: 'text-slate-800' },
@@ -551,7 +660,6 @@ const [activeDamageNote, setActiveDamageNote]     = useState('');
             ))}
           </div>
 
-          {/* جدول */}
           <div className="bg-slate-50 rounded-2xl border border-slate-100 overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-slate-100 text-slate-600">

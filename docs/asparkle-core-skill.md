@@ -35,7 +35,7 @@ Never treat `stock_snapshot` as the real ledger.
 ## Inventory Formula
 
 ### Official Stock
-```txt
+
 SUM(ADD)
 - SUM(SALE/deducted)
 + SUM(RETURN)

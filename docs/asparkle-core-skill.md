@@ -41,7 +41,7 @@ SUM(ADD)
 + SUM(RETURN)
 + SUM(UPDATE)
 
-Net Available Stock
+### Net Available Stock
 official_stock
 - DAMAGE
 - MISSING
@@ -127,7 +127,7 @@ Important SKU
 
 Contains a leading zero.
 
-Critical Rule
+### Critical Rule
 
 Never:
 

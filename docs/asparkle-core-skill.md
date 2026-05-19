@@ -45,8 +45,8 @@ SUM(ADD)
 official_stock
 - DAMAGE
 - MISSING
-Critical Rule
 
+### Critical Rule
 DAMAGE and MISSING must NEVER be deducted inside snapshot calculations.
 
 Correct logic:

@@ -50,58 +50,58 @@ official_stock
 DAMAGE and MISSING must NEVER be deducted inside snapshot calculations.
 
 Correct logic:
-
 snapshot = movement calculations only
 
 net = snapshot - damage - missing
 
-Movement Types
-Supported Internal Types
+### Movement Types
+## Supported Internal Types
 ADD
 SALE
 RETURN
 UPDATE
 DAMAGE
 MISSING
-Between Mappings
+
+### Between Mappings
 Between Type	Internal Type
 Add	ADD
 deducted	SALE
 return	RETURN
 Update	UPDATE
-Important
+
+## Important
 
 DAMAGE and MISSING are manual internal adjustments only.
 
 They never originate from Between.
 
-Deduplication Rules
-Critical Dedup Key
+### Deduplication Rules
+## Critical Dedup Key
 `${rowNo}_${sku}`
-Never deduplicate by:
+
+## Never deduplicate by:
 AWB
 SKU only
-Reason
 
+## Reason
 Same AWB can contain:
-
 multiple pallets
 multiple locations
 multiple independent rows
 
 Each rowNo represents a separate inventory row.
 
-Between Import Assumptions
-Official Stock Reference
+### Between Import Assumptions
+## Official Stock Reference
 
 Between Items List is considered the official stock reference.
 
 Items List automatically aggregates quantities across locations.
 
-Expected Movement Export Behavior
+### Expected Movement Export Behavior
 
 Movement exports may contain:
-
 duplicated AWBs
 split rows
 multiple locations
@@ -111,23 +111,25 @@ This is expected behavior.
 
 Do not collapse rows automatically.
 
-Time Machine Rules
+### Time Machine Rules
 
 Historical inventory is reconstructed from movements.
 
-Core Function
-buildSnapshotAtDate(movements, beforeDate)
-Rules
+## Core Function
+buildSnapshotAtDate(movements, beforeDate) 
+
+## Rules
 snapshot must ignore DAMAGE/MISSING
 historical stock is movement-based only
 net stock is calculated after snapshot generation
-SKU Rules
-Important SKU
+
+### SKU Rules
+## Important SKU
 09000903
 
 Contains a leading zero.
 
-### Critical Rule
+## Critical Rule
 
 Never:
 
@@ -137,18 +139,20 @@ trim leading zeros
 
 Always preserve SKU strings exactly as received.
 
-Firestore Architecture
+### Firestore Architecture
 Base Path
 artifacts/{appId}/public/data/
-Main Collections
-Collection	Purpose
+
+### Main Collections
+# Collection	# Purpose
 stock_movements	Primary inventory ledger
 stock_snapshot	Cached Between stock
 orders	Orders
 movements	Legacy sales movements
 cs_returns	Customer service returns
 settings/definitions	Product definitions/packages
-Important Files
+
+## Important Files
 Core Inventory Logic
 StockTab.jsx
 BetweenImportTab.jsx

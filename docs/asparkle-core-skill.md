@@ -56,19 +56,21 @@ net = snapshot - damage - missing
 
 ### Movement Types
 ## Supported Internal Types
-ADD
-SALE
-RETURN
-UPDATE
-DAMAGE
-MISSING
+- ADD
+- SALE
+- RETURN
+- UPDATE
+- DAMAGE
+- MISSING
 
 ### Between Mappings
-Between Type	Internal Type
-Add	ADD
-deducted	SALE
-return	RETURN
-Update	UPDATE
+| Between Type | Internal Type |
+| ------------ | ------------- |
+| Add          | ADD           |
+| deducted     | SALE          |
+| return       | RETURN        |
+| Update       | UPDATE        |
+
 
 ## Important
 
@@ -76,21 +78,25 @@ DAMAGE and MISSING are manual internal adjustments only.
 
 They never originate from Between.
 
+---
+
 ### Deduplication Rules
 ## Critical Dedup Key
 `${rowNo}_${sku}`
 
 ## Never deduplicate by:
-AWB
-SKU only
+- AWB
+- SKU only
 
 ## Reason
 Same AWB can contain:
-multiple pallets
-multiple locations
-multiple independent rows
+- multiple pallets
+- multiple locations
+- multiple independent rows
 
 Each rowNo represents a separate inventory row.
+
+---
 
 ### Between Import Assumptions
 ## Official Stock Reference
@@ -99,17 +105,21 @@ Between Items List is considered the official stock reference.
 
 Items List automatically aggregates quantities across locations.
 
+---
+
 ### Expected Movement Export Behavior
 
 Movement exports may contain:
-duplicated AWBs
-split rows
-multiple locations
-repeated SKUs
+- duplicated AWBs
+- split rows
+- multiple locations
+- repeated SKUs
 
 This is expected behavior.
 
 Do not collapse rows automatically.
+
+---
 
 ### Time Machine Rules
 
@@ -119,9 +129,11 @@ Historical inventory is reconstructed from movements.
 buildSnapshotAtDate(movements, beforeDate) 
 
 ## Rules
-snapshot must ignore DAMAGE/MISSING
-historical stock is movement-based only
-net stock is calculated after snapshot generation
+- snapshot must ignore DAMAGE/MISSING
+- historical stock is movement-based only
+- net stock is calculated after snapshot generation
+
+---
 
 ### SKU Rules
 ## Important SKU
@@ -133,70 +145,85 @@ Contains a leading zero.
 
 Never:
 
-parse SKUs as numbers
-auto-normalize SKUs
-trim leading zeros
+- parse SKUs as numbers
+- auto-normalize SKUs
+- trim leading zeros
 
 Always preserve SKU strings exactly as received.
 
+---
+
 ### Firestore Architecture
-Base Path
+## Base Path
 artifacts/{appId}/public/data/
 
+---
+
 ### Main Collections
-# Collection	# Purpose
-stock_movements	Primary inventory ledger
-stock_snapshot	Cached Between stock
-orders	Orders
-movements	Legacy sales movements
-cs_returns	Customer service returns
-settings/definitions	Product definitions/packages
+| Collection           | Purpose                      |
+| -------------------- | ---------------------------- |
+| stock_movements      | Primary inventory ledger     |
+| stock_snapshot       | Cached Between stock         |
+| orders               | Orders                       |
+| movements            | Legacy sales movements       |
+| cs_returns           | Customer service returns     |
+| settings/definitions | Product definitions/packages |
+
+---
 
 ## Important Files
-Core Inventory Logic
-StockTab.jsx
-BetweenImportTab.jsx
-Global State
-useAppData.js
-Mapping Logic
-masterMapping.js
-Development Rules
-Inventory Logic Changes
+## Core Inventory Logic
+- StockTab.jsx
+- BetweenImportTab.jsx
+
+## Global State
+- useAppData.js
+
+## Mapping Logic
+- masterMapping.js 
+
+---
+
+### Development Rules
+## Inventory Logic Changes
 
 When modifying inventory logic:
+- prefer minimal safe fixes
+- avoid unnecessary refactors
+- preserve backward compatibility
+- do not rewrite architecture unless explicitly requested
 
-prefer minimal safe fixes
-avoid unnecessary refactors
-preserve backward compatibility
-do not rewrite architecture unless explicitly requested
-Dangerous Changes
+---
+
+### Dangerous Changes
 
 Never change:
-
-dedup logic
-snapshot philosophy
-movement type meanings
+- dedup logic
+- snapshot philosophy
+- movement type meanings
 
 Unless explicitly requested.
 
-Project Philosophy
+---
+
+### Project Philosophy
 
 The system prioritizes:
-
-inventory correctness
-auditability
-reproducible historical stock states
+1. inventory correctness
+2. auditability
+3. reproducible historical stock states
 
 Performance optimizations must never break inventory accuracy.
 
-Preferred AI Response Style
+---
+
+### Preferred AI Response Style
 
 Preferred structure:
-
-quick understanding
-exact issue
-minimal fix
-final code
-possible side effects
+1. quick understanding
+2. exact issue
+3. minimal fix
+4. final code
+5. possible side effects
 
 Ask concise technical questions only when necessary.

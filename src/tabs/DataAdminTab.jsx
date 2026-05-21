@@ -6,8 +6,6 @@ import {
   getDocs,
   deleteDoc,
   doc,
-  updateDoc,
-  getDoc,
 } from 'firebase/firestore';
 
 export default function DataAdminTab() {
@@ -81,37 +79,7 @@ export default function DataAdminTab() {
     }
   };
 
-  // 🔄 تصفير المخزون الافتتاحي
-  const resetOpeningStock = async () => {
-    const confirmed = window.confirm('هل أنت متأكد من تصفير المخزون الافتتاحي؟');
-    if (!confirmed) return;
 
-    try {
-      const definitionsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'definitions');
-      const definitionsSnap = await getDoc(definitionsRef);
-
-      if (!definitionsSnap.exists()) {
-        alert('لا توجد بيانات منتجات ❌');
-        return;
-      }
-
-      const data = definitionsSnap.data();
-      const products = data.productDetails || {};
-      const updated = {};
-
-      Object.keys(products).forEach((sku) => {
-        updated[sku] = { ...products[sku], openingStock: 0 };
-      });
-
-      await updateDoc(definitionsRef, { productDetails: updated });
-
-      alert('تم تصفير المخزون بنجاح ✅');
-      window.location.reload();
-    } catch (error) {
-      console.error(error);
-      alert('حدث خطأ أثناء التصفير ❌');
-    }
-  };
 
   return (
     <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-8" dir="rtl">
@@ -161,24 +129,10 @@ export default function DataAdminTab() {
         </button>
 
         <button
-          onClick={() => deleteCollectionItems('movements', 'الحركات')}
-          className="bg-rose-600 hover:bg-rose-700 text-white font-bold py-4 rounded-2xl"
-        >
-          حذف الحركات
-        </button>
-
-        <button
           onClick={() => deleteCollectionItems('cs_returns', 'مرتجعات خدمة العملاء')}
           className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 rounded-2xl"
         >
           حذف مرتجعات CS
-        </button>
-
-        <button
-          onClick={resetOpeningStock}
-          className="bg-rose-700 hover:bg-rose-800 text-white font-bold py-4 rounded-2xl md:col-span-2"
-        >
-          تصفير المخزون الافتتاحي
         </button>
 
       </div>

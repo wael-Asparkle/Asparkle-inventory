@@ -4,16 +4,26 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { db, auth, appId } from '../config/firebase';
 import { ROLES, DEFAULT_ROLE } from '../constants/ui';
 
+const ACTIVE_TAB_KEY = 'asparkle_active_tab';
+
 export default function useAppData() {
-  const [activeTab, setActiveTab]       = useState('dashboard');
+  const [activeTab, setActiveTabState] = useState(
+    () => localStorage.getItem(ACTIVE_TAB_KEY) || 'dashboard'
+  );
   const [currentUserRole]               = useState(DEFAULT_ROLE);
   const [movements, setMovements]       = useState([]);
   const [productDetails, setProductDetails] = useState({});
   const [packages, setPackages]         = useState({});
 
   // ── Auth State ──────────────────────────────────────────
-  const [user, setUser]         = useState(undefined); // undefined = جاري التحقق
+  const [user, setUser]         = useState(undefined);
   const [authReady, setAuthReady] = useState(false);
+
+  // حفظ الصفحة النشطة في localStorage عند كل تغيير
+  const setActiveTab = (tab) => {
+    localStorage.setItem(ACTIVE_TAB_KEY, tab);
+    setActiveTabState(tab);
+  };
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
@@ -69,14 +79,15 @@ export default function useAppData() {
     return allowedRoles.includes(currentUserRole);
   };
 
-  const logout = () => signOut(auth);
+  const logout = () => {
+    localStorage.removeItem(ACTIVE_TAB_KEY); // عند تسجيل الخروج يرجع للداشبورد
+    signOut(auth);
+  };
 
   return {
-    // Auth
     user,
     authReady,
     logout,
-    // App
     activeTab,
     setActiveTab,
     currentUserRole,

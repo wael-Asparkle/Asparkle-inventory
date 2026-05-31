@@ -25,6 +25,7 @@ import DataAdminTab from './tabs/DataAdminTab';
 import ImportTab from './tabs/ImportTab';
 import CSReturnsTab from './tabs/CSReturnsTab';
 import BetweenImportTab from './tabs/BetweenImportTab';
+import DashboardTab from './tabs/DashboardTab';
 
 function App() {
   const { activeTab, setActiveTab, user, authReady, logout } = useAppData();

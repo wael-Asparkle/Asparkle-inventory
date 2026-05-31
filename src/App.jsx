@@ -97,12 +97,7 @@ function App() {
       </nav>
 
       <main className="max-w-[1400px] mx-auto px-4 py-8">
-        {activeTab === 'dashboard' && (
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-8">
-            <h2 className="text-2xl font-black text-slate-800 mb-3">لوحة التحكم</h2>
-            <p className="text-slate-500 text-sm">قيد التطوير — قريباً 🚀</p>
-          </div>
-        )}
+        {activeTab === 'dashboard' && <DashboardTab />}
         {activeTab === 'stock'      && <StockTab />}
         {activeTab === 'movements'  && <MovementsTab />}
         {activeTab === 'orders'     && <OrdersTab />}

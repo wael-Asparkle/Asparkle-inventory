@@ -129,7 +129,7 @@ export function parseOrderRow(row) {
   const skuMap   = resolveSkusFromRaw(rawSku);
 
   return {
-    reference:   String(row['رقم الطلب'] || '').trim(),
+    reference:   String(row['رقم الطلب'] || '').trim(), 
     customer: {
       name:  String(row['اسم العميل']  || '').trim(),
       phone: String(row['رقم الجوال']  || '').trim(),

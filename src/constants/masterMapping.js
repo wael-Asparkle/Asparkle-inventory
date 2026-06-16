@@ -140,7 +140,7 @@ export function parseOrderRow(row) {
     channel,
     skuBreakdown:  skuMap,
     paymentMethod: String(row['طريقة الدفع']   || '').trim(),
-    total: parseFloat(row['إجمالي الطلب (شامل التخفيضات)']) || 0,
+    total: parseFloat(row['إجمالي الطلب (شامل التخفيضات)']) || 0, 
 date,
   };
 }

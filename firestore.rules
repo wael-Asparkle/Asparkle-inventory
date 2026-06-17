@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function hasUserProfile() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function activeUser() {
+      return hasUserProfile()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isActive == true;
+    }
+
+    function roleIn(roles) {
+      return activeUser()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in roles;
+    }
+
+    function isAdmin() {
+      return roleIn(['admin', 'super_admin']);
+    }
+
+    function isManager() {
+      return roleIn(['manager']);
+    }
+
+    function isOperations() {
+      return roleIn(['operations']);
+    }
+
+    function isMarketing() {
+      return roleIn(['marketing']);
+    }
+
+    function isViewer() {
+      return roleIn(['viewer']);
+    }
+
+    function canReadBusinessData() {
+      return isAdmin() || isManager() || isOperations() || isMarketing() || isViewer();
+    }
+
+    function canWriteOperationalData() {
+      return isAdmin() || isOperations();
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /artifacts/{appId}/public/data/orders/{docId} {
+      allow read: if canReadBusinessData();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /artifacts/{appId}/public/data/stock_movements/{docId} {
+      allow read: if canReadBusinessData();
+      allow create, update: if canWriteOperationalData();
+      allow delete: if isAdmin();
+    }
+
+    match /artifacts/{appId}/public/data/movements/{docId} {
+      allow read: if canReadBusinessData();
+      allow create, update: if canWriteOperationalData();
+      allow delete: if isAdmin();
+    }
+
+    match /artifacts/{appId}/public/data/cs_returns/{docId} {
+      allow read: if isAdmin() || isManager() || isOperations();
+      allow create, update: if canWriteOperationalData();
+      allow delete: if isAdmin();
+    }
+
+    match /artifacts/{appId}/public/data/ad_costs/{docId} {
+      allow read: if isAdmin() || isManager() || isMarketing();
+      allow create, update: if isAdmin() || isMarketing();
+      allow delete: if isAdmin();
+    }
+
+    match /artifacts/{appId}/public/data/{collectionName}/{docId} {
+      allow read: if canReadBusinessData();
+      allow create, update, delete: if isAdmin();
+    }
+  }
+}

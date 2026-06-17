@@ -242,7 +242,7 @@ export default function CRMTab() {
   const [orders,   setOrders]   = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [search,   setSearch]   = useState('');
-  const [segment,  setSegment]  = useState('all');   // all | vip | repeat | new
+  const [segment,  setSegment]  = useState('all');   // all | vip | repeat | new | one_time
   const [sortBy,   setSortBy]   = useState('spent'); // spent | orders | recent
 
   useEffect(() => {
@@ -262,6 +262,7 @@ export default function CRMTab() {
     vip:     customers.filter(c => c.ordersCount >= 4).length,
     repeat:  customers.filter(c => c.ordersCount >= 2 && c.ordersCount < 4).length,
     newC:    customers.filter(c => c.ordersCount === 1).length,
+    oneTime: customers.filter(c => c.ordersCount === 1).length,
     totalRev: customers.reduce((s, c) => s + c.totalSpent, 0),
     avgLTV:   customers.length ? Math.round(customers.reduce((s, c) => s + c.totalSpent, 0) / customers.length) : 0,
     repeatRate: customers.length ? ((customers.filter(c => c.ordersCount >= 2).length / customers.length) * 100).toFixed(1) : 0,
@@ -270,9 +271,10 @@ export default function CRMTab() {
   // ── فلترة + ترتيب ──
   const filtered = useMemo(() => {
     let list = [...customers];
-    if (segment === 'vip')    list = list.filter(c => c.ordersCount >= 4);
-    if (segment === 'repeat') list = list.filter(c => c.ordersCount >= 2 && c.ordersCount < 4);
-    if (segment === 'new')    list = list.filter(c => c.ordersCount === 1);
+    if (segment === 'vip')      list = list.filter(c => c.ordersCount >= 4);
+    if (segment === 'repeat')   list = list.filter(c => c.ordersCount >= 2 && c.ordersCount < 4);
+    if (segment === 'new')      list = list.filter(c => c.ordersCount === 1);
+    if (segment === 'one_time') list = list.filter(c => c.ordersCount === 1);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(c =>
@@ -332,11 +334,12 @@ export default function CRMTab() {
 
       {/* شرائح سريعة */}
       <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[
-            { id: 'vip',    label: 'VIP',    count: stats.vip,    color: 'text-amber-600',  bg: 'bg-amber-50',  border: 'border-amber-200',  icon: <Crown size={14} />   },
-            { id: 'repeat', label: 'متكرر',  count: stats.repeat, color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-200', icon: <Repeat2 size={14} /> },
-            { id: 'new',    label: 'جديد',   count: stats.newC,   color: 'text-slate-500',  bg: 'bg-slate-50',  border: 'border-slate-200',  icon: <Star size={14} />    },
+            { id: 'vip',      label: 'VIP',        count: stats.vip,     color: 'text-amber-600',  bg: 'bg-amber-50',  border: 'border-amber-200',  icon: <Crown size={14} />       },
+            { id: 'repeat',   label: 'متكرر',      count: stats.repeat,  color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-200', icon: <Repeat2 size={14} />     },
+            { id: 'new',      label: 'جديد',       count: stats.newC,    color: 'text-slate-500',  bg: 'bg-slate-50',  border: 'border-slate-200',  icon: <Star size={14} />        },
+            { id: 'one_time', label: 'لم يكرروا',  count: stats.oneTime, color: 'text-rose-600',   bg: 'bg-rose-50',   border: 'border-rose-200',   icon: <ShoppingBag size={14} /> },
           ].map(s => (
             <button key={s.id}
               onClick={() => setSegment(segment === s.id ? 'all' : s.id)}
@@ -352,6 +355,15 @@ export default function CRMTab() {
           ))}
         </div>
       </div>
+
+      {segment === 'one_time' && (
+        <div className="bg-rose-50 border border-rose-100 rounded-2xl px-5 py-4 flex items-center gap-3">
+          <ShoppingBag size={18} className="text-rose-500 flex-shrink-0" />
+          <p className="text-xs font-bold text-rose-700 leading-6">
+            هذه شريحة عملاء اشتروا مرة واحدة فقط. مناسبة لاحقاً لحملة واتساب لإعادة الشراء أو تجربة عطر/بكج مختلف.
+          </p>
+        </div>
+      )}
 
       {/* البحث والفلاتر */}
       <div className="bg-white rounded-3xl border border-slate-100 shadow-sm px-5 py-4 flex items-center gap-3 flex-wrap">
@@ -372,14 +384,17 @@ export default function CRMTab() {
         <div className="flex items-center gap-2">
           <Filter size={14} className="text-slate-400" />
           <span className="text-xs font-black text-slate-400">ترتيب:</span>
-          {[['spent','الأعلى إنفاقاً'], ['orders','الأكثر طلبات'], ['recent','الأحدث']].map(([id, label]) => (
-            <button key={id} onClick={() => setSortBy(id)}
-              className={`text-xs font-black px-3 py-1.5 rounded-lg transition-all ${
-                sortBy === id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-              }`}>
-              {label}
-            </button>
-          ))}
+          {['spent','orders','recent'].map((id) => {
+            const label = id === 'spent' ? 'الأعلى إنفاقاً' : id === 'orders' ? 'الأكثر طلبات' : 'الأحدث';
+            return (
+              <button key={id} onClick={() => setSortBy(id)}
+                className={`text-xs font-black px-3 py-1.5 rounded-lg transition-all ${
+                  sortBy === id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                }`}>
+                {label}
+              </button>
+            );
+          })}
         </div>
         <span className="text-xs text-slate-400 font-bold">{fmt(filtered.length)} نتيجة</span>
       </div>
@@ -402,4 +417,3 @@ export default function CRMTab() {
 }
 
 function pct(a, b) { return b ? ((a / b) * 100).toFixed(0) : '0'; }
- 

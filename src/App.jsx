@@ -19,6 +19,7 @@ import MovementsTab from './tabs/MovementsTab';
 import OrdersTab from './tabs/OrdersTab';
 import CRMTab from './tabs/CRMTab';
 import DataAdminTab from './tabs/DataAdminTab';
+import UserManagementTab from './tabs/UserManagementTab';
 import ImportTab from './tabs/ImportTab';
 import CSReturnsTab from './tabs/CSReturnsTab';
 import BetweenImportTab from './tabs/BetweenImportTab';
@@ -90,6 +91,7 @@ function App() {
     { id: 'between', label: 'Between', icon: <Database size={18} />, allowedRoles: TAB_ACCESS.between },
     { id: 'cs_returns', label: 'مرتجعات CS', icon: <RotateCcw size={18} />, allowedRoles: TAB_ACCESS.cs_returns },
     { id: 'data_admin', label: 'إدارة البيانات', icon: <ShieldAlert size={18} />, allowedRoles: TAB_ACCESS.data_admin },
+    { id: 'user_management', label: 'المستخدمون', icon: <UsersRound size={18} />, allowedRoles: TAB_ACCESS.user_management },
   ];
 
   const allowedNavItems = navItems.filter((item) => hasAccess(item.allowedRoles));
@@ -155,6 +157,9 @@ function App() {
         {currentTab === 'cs_returns' && <CSReturnsTab />}
         {currentTab === 'data_admin' && (
           <DataAdminTab canDeleteData={hasPermission(PERMISSIONS.DELETE_DATA)} />
+        )}
+        {currentTab === 'user_management' && (
+          <UserManagementTab currentUserUid={userProfile?.uid || user?.uid} />
         )}
       </main>
     </div>

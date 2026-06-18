@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { collection, doc, onSnapshot, updateDoc } from 'firebase/firestore';
-import { Loader2, UserRoundCog, UsersRound } from 'lucide-react';
+import { Loader2, UsersRound } from 'lucide-react';
 import { db } from '../config/firebase';
 import { ROLE_LABELS, ROLES, normalizeRole } from '../constants/ui';
 
@@ -65,7 +65,7 @@ export default function UserManagementTab({ currentUserUid }) {
       <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-            <UserRoundCog size={22} />
+            <UsersRound size={22} />
           </div>
           <div>
             <h1 className="text-2xl font-black text-slate-800">المستخدمون والصلاحيات</h1>

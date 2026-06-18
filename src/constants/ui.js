@@ -34,6 +34,7 @@ export const TAB_ACCESS = {
   between: [ROLES.ADMIN, ROLES.OPERATIONS],
   cs_returns: [ROLES.ADMIN, ROLES.OPERATIONS],
   data_admin: [ROLES.ADMIN],
+  user_management: [ROLES.ADMIN],
 };
 
 export const PERMISSIONS = {
@@ -43,6 +44,7 @@ export const PERMISSIONS = {
   MANAGE_RETURNS: 'manage_returns',
   WRITE_OPERATIONAL_DATA: 'write_operational_data',
   MANAGE_AD_COSTS: 'manage_ad_costs',
+  MANAGE_USERS: 'manage_users',
 };
 
 export const ROLE_PERMISSIONS = {

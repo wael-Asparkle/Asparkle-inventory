@@ -31,7 +31,10 @@ const PRODUCT_NAMES = {
 const MOVEMENT_LABELS = {
   ADD: 'دخول',
   SALE: 'خروج / بيع',
-  RETURN: 'مرتجع',
+  RETURN: 'مرتجع عميل',
+  PHOTO_OUT: 'سحب للتصوير',
+  PHOTO_RETURN: 'إرجاع من التصوير',
+  PHOTO_LOSS: 'فاقد تصوير',
   UPDATE: 'تسوية',
   DAMAGE: 'دامج',
   MISSING: 'مفقود',
@@ -42,6 +45,9 @@ const MOVEMENT_CLASSES = {
   ADD: 'bg-emerald-50 text-emerald-700 border-emerald-100',
   SALE: 'bg-rose-50 text-rose-700 border-rose-100',
   RETURN: 'bg-blue-50 text-blue-700 border-blue-100',
+  PHOTO_OUT: 'bg-violet-50 text-violet-700 border-violet-100',
+  PHOTO_RETURN: 'bg-cyan-50 text-cyan-700 border-cyan-100',
+  PHOTO_LOSS: 'bg-orange-50 text-orange-700 border-orange-100',
   UPDATE: 'bg-amber-50 text-amber-700 border-amber-100',
   DAMAGE: 'bg-orange-50 text-orange-700 border-orange-100',
   MISSING: 'bg-slate-50 text-slate-700 border-slate-200',
@@ -72,16 +78,35 @@ function movementSignedQty(movement) {
   switch (movement.movementType) {
     case 'ADD':
     case 'RETURN':
+    case 'PHOTO_RETURN':
       return qty;
     case 'SALE':
     case 'DAMAGE':
     case 'MISSING':
+    case 'PHOTO_OUT':
       return -qty;
+    case 'PHOTO_LOSS':
+      return 0;
     case 'UPDATE':
       return toNumber(movement.qty ?? movement.quantity);
     default:
       return toNumber(movement.qty ?? movement.quantity);
   }
+}
+
+function createEmptySummary() {
+  return {
+    inbound: 0,
+    outbound: 0,
+    returns: 0,
+    damage: 0,
+    missing: 0,
+    photoOut: 0,
+    photoReturn: 0,
+    photoLoss: 0,
+    photoOpen: 0,
+    adjustments: 0,
+  };
 }
 
 function buildMovementStock(movements, selectedDate) {
@@ -100,9 +125,7 @@ function buildSkuSummary(movements, selectedDate) {
   const summary = {};
   movements.filter((m) => sameOrBefore(m.date, selectedDate)).forEach((m) => {
     if (!m.sku) return;
-    if (!summary[m.sku]) {
-      summary[m.sku] = { inbound: 0, outbound: 0, returns: 0, damage: 0, missing: 0, adjustments: 0 };
-    }
+    if (!summary[m.sku]) summary[m.sku] = createEmptySummary();
 
     const qty = Math.abs(toNumber(m.qty ?? m.quantity));
     switch (m.movementType) {
@@ -114,6 +137,15 @@ function buildSkuSummary(movements, selectedDate) {
         break;
       case 'RETURN':
         summary[m.sku].returns += qty;
+        break;
+      case 'PHOTO_OUT':
+        summary[m.sku].photoOut += qty;
+        break;
+      case 'PHOTO_RETURN':
+        summary[m.sku].photoReturn += qty;
+        break;
+      case 'PHOTO_LOSS':
+        summary[m.sku].photoLoss += qty;
         break;
       case 'DAMAGE':
         summary[m.sku].damage += qty;
@@ -128,6 +160,12 @@ function buildSkuSummary(movements, selectedDate) {
         break;
     }
   });
+
+  Object.keys(summary).forEach((sku) => {
+    const s = summary[sku];
+    s.photoOpen = Math.max(0, s.photoOut - s.photoReturn - s.photoLoss);
+  });
+
   return summary;
 }
 
@@ -145,7 +183,7 @@ function getStockStatus(row) {
 
 function exportCSV(rows, lossRows) {
   const stockLines = [
-    ['SKU', 'اسم المنتج', 'مخزون بتوين', 'الدخول', 'الخروج', 'المرتجعات', 'الدامج', 'المفقود', 'المتاح للبيع', 'المصدر', 'الحالة'],
+    ['SKU', 'اسم المنتج', 'مخزون بتوين', 'الدخول', 'الخروج', 'المرتجعات', 'سحب تصوير', 'رجع تصوير', 'فاقد تصوير', 'تصوير مفتوح', 'دامج/مفقود', 'المتاح للبيع', 'المصدر', 'الحالة'],
     ...rows.map((r) => [
       r.sku,
       r.name,
@@ -153,8 +191,11 @@ function exportCSV(rows, lossRows) {
       r.inbound,
       r.outbound,
       r.returns,
-      r.damage,
-      r.missing,
+      r.photoOut,
+      r.photoReturn,
+      r.photoLoss,
+      r.photoOpen,
+      r.damage + r.missing,
       r.available,
       r.source,
       getStockStatus(r).label,
@@ -163,7 +204,7 @@ function exportCSV(rows, lossRows) {
 
   const lossLines = [
     '',
-    'سجل الدامج والمفقودات',
+    'سجل الدامج والمفقودات وفاقد التصوير',
     ['التاريخ', 'النوع', 'SKU', 'المنتج', 'الكمية', 'AWB', 'الحالة', 'ملاحظات'],
     ...lossRows.map((m) => [
       formatDateTime(m.date),
@@ -242,24 +283,26 @@ export default function StockTab() {
   }, [officialStock, movements]);
 
   const rows = useMemo(() => allSkus.map((sku) => {
-    const summary = summaryMap[sku] || { inbound: 0, outbound: 0, returns: 0, damage: 0, missing: 0, adjustments: 0 };
+    const summary = summaryMap[sku] || createEmptySummary();
     const officialQty = officialStock[sku]?.currentQty ?? 0;
     const calculatedQty = movementStock[sku] ?? 0;
-    const available = selectedDate ? calculatedQty : (officialStock[sku] ? officialQty : calculatedQty);
+    const baseAvailable = selectedDate ? calculatedQty : (officialStock[sku] ? officialQty : calculatedQty);
+    const available = Math.max(0, baseAvailable - summary.photoOpen);
 
     return {
       sku,
       name: PRODUCT_NAMES[sku] || officialStock[sku]?.name || sku,
       officialQty,
       calculatedQty,
+      baseAvailable,
       available,
       ...summary,
-      source: selectedDate ? 'حركات تاريخية' : (officialStock[sku] ? 'مخزون بتوين' : 'حركات فقط'),
+      source: selectedDate ? 'حركات تاريخية' : (officialStock[sku] ? 'مخزون بتوين + التصوير المفتوح' : 'حركات فقط'),
     };
   }).sort((a, b) => a.name.localeCompare(b.name, 'ar')), [allSkus, officialStock, movementStock, selectedDate, summaryMap]);
 
   const lossRows = useMemo(() => movements
-    .filter((m) => ['DAMAGE', 'MISSING'].includes(m.movementType))
+    .filter((m) => ['DAMAGE', 'MISSING', 'PHOTO_LOSS'].includes(m.movementType))
     .sort((a, b) => new Date(normalizeDate(b.date)) - new Date(normalizeDate(a.date))), [movements]);
 
   const recentMovements = useMemo(() => movements
@@ -280,7 +323,9 @@ export default function StockTab() {
     inbound: rows.reduce((sum, row) => sum + row.inbound, 0),
     outbound: rows.reduce((sum, row) => sum + row.outbound, 0),
     returns: rows.reduce((sum, row) => sum + row.returns, 0),
-    loss: rows.reduce((sum, row) => sum + row.damage + row.missing, 0),
+    photoOpen: rows.reduce((sum, row) => sum + row.photoOpen, 0),
+    photoLoss: rows.reduce((sum, row) => sum + row.photoLoss, 0),
+    loss: rows.reduce((sum, row) => sum + row.damage + row.missing + row.photoLoss, 0),
   }), [rows]);
 
   const lowRows = rows.filter((row) => row.available <= LOW_STOCK_LIMIT).sort((a, b) => a.available - b.available);
@@ -293,7 +338,7 @@ export default function StockTab() {
           <div>
             <h2 className="text-2xl font-black text-slate-800">المخزون</h2>
             <p className="text-slate-400 text-xs mt-0.5">
-              {selectedDate ? `المخزون حسب الحركات حتى ${selectedDate}` : 'المخزون الحالي من Between + ملخص الحركات'}
+              {selectedDate ? `المخزون حسب الحركات حتى ${selectedDate}` : 'المخزون الحالي من Between + التصوير المفتوح'}
             </p>
           </div>
         </div>
@@ -310,8 +355,8 @@ export default function StockTab() {
         <ClipboardList size={18} className="text-indigo-600 mt-0.5" />
         <div>
           <p className="text-xs leading-6 text-indigo-700 font-bold">
-            مصدر الحقيقة الحالي هو ملف المخزون الرسمي المرفوع من Between في مجموعة <span className="font-black">stock_snapshot</span>.
-            الحركات في <span className="font-black">stock_movements</span> تظهر كملخص تشغيلي للدخول والخروج والمرتجعات والفاقد.
+            مصدر المخزون الحالي هو <span className="font-black">stock_snapshot</span> من Between، مع مراعاة المنتجات المفتوحة للتصوير.
+            رجوع التصوير يظهر كـ <span className="font-black">إرجاع من التصوير</span> وليس كـ دخول جديد، حتى لا يتدبل المخزون.
           </p>
           <p className="text-xs text-indigo-500 font-bold mt-1">
             آخر تحديث من Between: {latestSnapshotUpdate ? formatDateTime(latestSnapshotUpdate) : 'لم يتم رفع مخزون رسمي بعد'}
@@ -341,11 +386,12 @@ export default function StockTab() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <StatCard label="المتاح للبيع" value={stats.total.toLocaleString()} hint="حسب مصدر الحقيقة" tone="slate" />
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+            <StatCard label="المتاح للبيع" value={stats.total.toLocaleString()} hint="بعد خصم التصوير المفتوح" tone="slate" />
+            <StatCard label="تصوير مفتوح" value={stats.photoOpen.toLocaleString()} hint="مسحوب ولم يُقفل" tone="violet" />
             <StatCard label="منخفض" value={stats.low} hint={`≤ ${LOW_STOCK_LIMIT} وحدة`} tone="orange" />
             <StatCard label="نافد" value={stats.zero} hint="صفر أو أقل" tone="rose" />
-            <StatCard label="خروج / بيع" value={stats.outbound.toLocaleString()} hint="من الحركات" tone="indigo" />
+            <StatCard label="فاقد تصوير" value={stats.photoLoss.toLocaleString()} hint="فرق ناقص بعد الرجوع" tone="amber" />
           </div>
 
           {lowRows.length > 0 && (
@@ -368,7 +414,7 @@ export default function StockTab() {
             <table className="w-full text-sm">
               <thead className="bg-slate-100 text-slate-600">
                 <tr>
-                  {['SKU', 'اسم المنتج', 'مخزون بتوين', 'الدخول', 'الخروج', 'المرتجع', 'دامج/مفقود', 'المتاح للبيع', 'المصدر', 'الحالة'].map((h) => (
+                  {['SKU', 'اسم المنتج', 'مخزون بتوين', 'دخول', 'خروج', 'مرتجع', 'تصوير مفتوح', 'فاقد تصوير', 'دامج/مفقود', 'المتاح للبيع', 'المصدر', 'الحالة'].map((h) => (
                     <th key={h} className="p-3 text-right font-black whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -384,6 +430,8 @@ export default function StockTab() {
                       <td className="p-3 font-bold text-emerald-600">{row.inbound ? row.inbound.toLocaleString() : '—'}</td>
                       <td className="p-3 font-bold text-rose-600">{row.outbound ? row.outbound.toLocaleString() : '—'}</td>
                       <td className="p-3 font-bold text-blue-600">{row.returns ? row.returns.toLocaleString() : '—'}</td>
+                      <td className="p-3 font-black text-violet-600">{row.photoOpen ? row.photoOpen.toLocaleString() : '—'}</td>
+                      <td className="p-3 font-bold text-orange-600">{row.photoLoss ? row.photoLoss.toLocaleString() : '—'}</td>
                       <td className="p-3 font-bold text-amber-600">{row.damage + row.missing ? (row.damage + row.missing).toLocaleString() : '—'}</td>
                       <td className={`p-3 font-black text-lg ${row.available <= 0 ? 'text-rose-600' : row.available <= LOW_STOCK_LIMIT ? 'text-orange-600' : 'text-emerald-600'}`}>{row.available.toLocaleString()}</td>
                       <td className="p-3 text-xs font-bold text-slate-400 whitespace-nowrap">{row.source}</td>
@@ -414,6 +462,7 @@ export default function StockTab() {
                       <span className={toNumber(m.qty) < 0 ? 'text-rose-600' : 'text-emerald-600'}>{toNumber(m.qty) > 0 ? `+${toNumber(m.qty)}` : toNumber(m.qty)}</span>
                     </div>
                     {m.awb && <p className="text-xs text-slate-400 mt-1 font-mono">AWB: {m.awb}</p>}
+                    {m.note && <p className="text-xs text-slate-400 mt-1">{m.note}</p>}
                   </div>
                 ))}
               </div>
@@ -421,7 +470,7 @@ export default function StockTab() {
 
             <div className="bg-slate-50 rounded-2xl border border-slate-100 p-4">
               <div className="flex items-center justify-between mb-3">
-                <p className="flex items-center gap-2 text-sm font-black text-slate-700"><AlertTriangle size={15} /> الدامج والمفقودات</p>
+                <p className="flex items-center gap-2 text-sm font-black text-slate-700"><AlertTriangle size={15} /> الفاقد والدامج</p>
                 <button onClick={() => setShowLossSection(!showLossSection)} className="text-xs font-black text-indigo-600 hover:text-indigo-700">
                   {showLossSection ? 'إخفاء' : 'عرض'} السجل
                 </button>
@@ -429,12 +478,12 @@ export default function StockTab() {
               <div className="grid grid-cols-3 gap-3 mb-4">
                 <MiniStat label="دامج" value={rows.reduce((sum, row) => sum + row.damage, 0)} tone="orange" />
                 <MiniStat label="مفقود" value={rows.reduce((sum, row) => sum + row.missing, 0)} tone="slate" />
-                <MiniStat label="الإجمالي" value={stats.loss} tone="rose" />
+                <MiniStat label="فاقد تصوير" value={stats.photoLoss} tone="violet" />
               </div>
 
               {showLossSection && (
                 <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {lossRows.length === 0 && <p className="text-xs text-slate-400 font-bold">لا يوجد دامج أو مفقودات مسجلة</p>}
+                  {lossRows.length === 0 && <p className="text-xs text-slate-400 font-bold">لا يوجد فاقد مسجل</p>}
                   {lossRows.map((m) => (
                     <div key={m.id} className="bg-white rounded-xl border border-slate-100 px-3 py-2">
                       <div className="flex items-center justify-between gap-3 mb-1">
@@ -468,6 +517,7 @@ function StatCard({ label, value, hint, tone }) {
     orange: 'text-orange-600',
     rose: 'text-rose-600',
     amber: 'text-amber-600',
+    violet: 'text-violet-600',
   };
   return (
     <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
@@ -483,6 +533,7 @@ function MiniStat({ label, value, tone }) {
     slate: 'text-slate-700',
     orange: 'text-orange-600',
     rose: 'text-rose-600',
+    violet: 'text-violet-600',
   };
   return (
     <div className="bg-white rounded-xl border border-slate-100 p-3">

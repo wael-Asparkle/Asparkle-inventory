@@ -106,6 +106,16 @@ export default function UserManagementTab({ currentUserUid }) {
     }
   };
 
+  const toggleUserActivation = async (userItem) => {
+    if (userItem.isActive) {
+      const userName = userItem.name || userItem.email || 'هذا المستخدم';
+      const confirmed = window.confirm(`تعطيل ${userName} سيمنعه من الدخول إلى النظام. هل تريد المتابعة؟`);
+      if (!confirmed) return;
+    }
+
+    await saveUser(userItem, { isActive: !userItem.isActive });
+  };
+
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6">
@@ -150,7 +160,7 @@ export default function UserManagementTab({ currentUserUid }) {
                 <tr>
                   <th className="text-right px-6 py-4 font-black">المستخدم</th>
                   <th className="text-right px-6 py-4 font-black">الدور وما يستطيع رؤيته</th>
-                  <th className="text-right px-6 py-4 font-black">الحالة</th>
+                  <th className="text-right px-6 py-4 font-black">الحالة والإجراء</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -186,18 +196,33 @@ export default function UserManagementTab({ currentUserUid }) {
                         <RoleAccessSummary role={item.role} />
                       </td>
 
-                      <td className="px-6 py-4 min-w-[180px]">
-                        <button
-                          disabled={isSaving || isCurrentUser}
-                          onClick={() => saveUser(item, { isActive: !item.isActive })}
-                          className={`rounded-2xl px-4 py-3 text-xs font-black transition-all disabled:opacity-60 ${
+                      <td className="px-6 py-4 min-w-[220px]">
+                        <div
+                          className={`inline-flex rounded-full px-3 py-1 text-xs font-black ${
                             item.isActive
-                              ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                              : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : 'bg-rose-50 text-rose-700'
                           }`}
                         >
-                          {isSaving ? 'جاري الحفظ...' : item.isActive ? 'مفعل' : 'غير مفعل'}
+                          {item.isActive ? 'الحالة: مفعل' : 'الحالة: غير مفعل'}
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={isSaving || isCurrentUser}
+                          onClick={() => toggleUserActivation(item)}
+                          className={`mt-3 block w-full rounded-2xl px-4 py-3 text-xs font-black transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
+                            item.isActive
+                              ? 'border border-rose-100 bg-white text-rose-700 hover:bg-rose-50'
+                              : 'border border-emerald-100 bg-white text-emerald-700 hover:bg-emerald-50'
+                          }`}
+                        >
+                          {isSaving ? 'جاري الحفظ...' : item.isActive ? 'تعطيل المستخدم' : 'تفعيل المستخدم'}
                         </button>
+
+                        {isCurrentUser && (
+                          <div className="text-[11px] font-bold text-slate-400 mt-2">لا يمكن تعطيل حسابك الحالي من هنا.</div>
+                        )}
                       </td>
                     </tr>
                   );

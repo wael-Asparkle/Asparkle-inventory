@@ -26,11 +26,14 @@ const PRODUCT_NAMES = {
 };
 
 const MOVEMENT_TYPES = [
-  { value: 'ADD', label: 'دخول مخزون', help: 'زيادة المخزون' },
-  { value: 'SALE', label: 'خروج / بيع', help: 'ينقص المخزون' },
-  { value: 'RETURN', label: 'مرتجع', help: 'يرجع للمخزون' },
-  { value: 'UPDATE', label: 'تسوية جرد', help: 'تعديل يدوي' },
-  { value: 'DAMAGE', label: 'دامج / تالف', help: 'توثيق فاقد' },
+  { value: 'ADD', label: 'دخول مخزون', help: 'زيادة حقيقية في المخزون: إنتاج جديد أو استلام جديد فقط' },
+  { value: 'SALE', label: 'خروج / بيع', help: 'ينقص المخزون بسبب طلب أو بيع' },
+  { value: 'RETURN', label: 'مرتجع عميل', help: 'رجوع منتج من عميل، وليس رجوع تصوير' },
+  { value: 'PHOTO_OUT', label: 'سحب للتصوير', help: 'استخدمها عند إخراج منتجات للتصوير — لا تستخدم خروج / بيع' },
+  { value: 'PHOTO_RETURN', label: 'إرجاع من التصوير', help: 'استخدمها عند رجوع منتجات التصوير — لا تستخدم دخول مخزون حتى لا يتدبل' },
+  { value: 'PHOTO_LOSS', label: 'فاقد تصوير', help: 'استخدمها للفرق الناقص بعد التصوير. توثيق فقط ولا تُسجل معه حركة دخول إضافية' },
+  { value: 'UPDATE', label: 'تسوية جرد', help: 'تعديل يدوي عند وجود فرق جرد واضح' },
+  { value: 'DAMAGE', label: 'دامج / تالف', help: 'توثيق فاقد أو تلف خارج التصوير' },
   { value: 'MISSING', label: 'مفقود شحن', help: 'مع AWB عند الحاجة' },
 ];
 
@@ -40,6 +43,9 @@ const TYPE_CLASSES = {
   ADD: 'bg-emerald-50 text-emerald-700 border-emerald-100',
   SALE: 'bg-rose-50 text-rose-700 border-rose-100',
   RETURN: 'bg-blue-50 text-blue-700 border-blue-100',
+  PHOTO_OUT: 'bg-violet-50 text-violet-700 border-violet-100',
+  PHOTO_RETURN: 'bg-cyan-50 text-cyan-700 border-cyan-100',
+  PHOTO_LOSS: 'bg-orange-50 text-orange-700 border-orange-100',
   UPDATE: 'bg-amber-50 text-amber-700 border-amber-100',
   DAMAGE: 'bg-orange-50 text-orange-700 border-orange-100',
   MISSING: 'bg-slate-50 text-slate-700 border-slate-200',
@@ -59,7 +65,7 @@ function normalizeDate(value) {
 
 function signedQty(type, qty) {
   const value = Math.abs(toNumber(qty));
-  if (['SALE', 'DAMAGE', 'MISSING'].includes(type)) return -value;
+  if (['SALE', 'DAMAGE', 'MISSING', 'PHOTO_OUT', 'PHOTO_LOSS'].includes(type)) return -value;
   return value;
 }
 
@@ -129,7 +135,7 @@ export default function MovementsTab() {
       .filter((m) => typeFilter === 'ALL' || m.movementType === typeFilter)
       .filter((m) => {
         if (!q) return true;
-        return [m.sku, PRODUCT_NAMES[m.sku], m.awb, m.note, m.source, m.movementType]
+        return [m.sku, PRODUCT_NAMES[m.sku], m.awb, m.note, m.source, m.movementType, TYPE_LABELS[m.movementType]]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(q));
       })
@@ -139,13 +145,20 @@ export default function MovementsTab() {
   const todayStats = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     const todayRows = movements.filter((m) => normalizeDate(m.date).slice(0, 10) === today);
+    const photoOut = todayRows.filter((m) => m.movementType === 'PHOTO_OUT').reduce((sum, m) => sum + Math.abs(toNumber(m.qty)), 0);
+    const photoReturn = todayRows.filter((m) => m.movementType === 'PHOTO_RETURN').reduce((sum, m) => sum + Math.abs(toNumber(m.qty)), 0);
+
     return {
       count: todayRows.length,
       in: todayRows.filter((m) => ['ADD', 'RETURN'].includes(m.movementType)).reduce((sum, m) => sum + Math.abs(toNumber(m.qty)), 0),
       out: todayRows.filter((m) => m.movementType === 'SALE').reduce((sum, m) => sum + Math.abs(toNumber(m.qty)), 0),
-      loss: todayRows.filter((m) => ['DAMAGE', 'MISSING'].includes(m.movementType)).reduce((sum, m) => sum + Math.abs(toNumber(m.qty)), 0),
+      photoOpen: Math.max(0, photoOut - photoReturn),
+      loss: todayRows.filter((m) => ['DAMAGE', 'MISSING', 'PHOTO_LOSS'].includes(m.movementType)).reduce((sum, m) => sum + Math.abs(toNumber(m.qty)), 0),
     };
   }, [movements]);
+
+  const selectedType = MOVEMENT_TYPES.find((type) => type.value === form.movementType);
+  const isPhotoMovement = ['PHOTO_OUT', 'PHOTO_RETURN', 'PHOTO_LOSS'].includes(form.movementType);
 
   const handleSave = async () => {
     if (!form.sku || !form.qty || !form.movementType) return;
@@ -157,7 +170,7 @@ export default function MovementsTab() {
         qty: signedQty(form.movementType, form.qty),
         awb: form.awb.trim(),
         note: form.note.trim(),
-        source: 'Manual',
+        source: isPhotoMovement ? 'Photo' : 'Manual',
         date: form.date ? new Date(`${form.date}T12:00:00`).toISOString() : new Date().toISOString(),
         createdAt: new Date().toISOString(),
       });
@@ -179,7 +192,7 @@ export default function MovementsTab() {
           <ArrowRightLeft className="text-indigo-600" size={28} />
           <div>
             <h2 className="text-2xl font-black text-slate-800">حركات المخزون</h2>
-            <p className="text-slate-400 text-xs mt-0.5">سجل الدخول والخروج والمرتجعات والفاقد</p>
+            <p className="text-slate-400 text-xs mt-0.5">سجل الدخول والخروج والمرتجعات والتصوير والفاقد</p>
           </div>
         </div>
 
@@ -199,8 +212,8 @@ export default function MovementsTab() {
       <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 mb-6 flex items-start gap-3">
         <AlertTriangle size={18} className="text-indigo-600 mt-0.5" />
         <p className="text-xs leading-6 text-indigo-700 font-bold">
-          هذه الصفحة مخصصة للتشغيل اليومي. أي حركة تحفظ هنا تذهب إلى <span className="font-black">stock_movements</span> وتظهر في صفحة المخزون.
-          أما المخزون الحالي الرسمي في صفحة المخزون فيُقرأ من ملف Between الرسمي عند رفعه من تبويب Between.
+          رجوع منتجات التصوير لا يُسجل كـ <span className="font-black">دخول مخزون</span>، بل كـ <span className="font-black">إرجاع من التصوير</span>.
+          وإذا رجع أقل من المسحوب، سجّل الفرق كـ <span className="font-black">فاقد تصوير</span> حتى لا يتدبل المخزون.
         </p>
       </div>
 
@@ -233,20 +246,20 @@ export default function MovementsTab() {
                 className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
             </FormField>
 
-            <FormField label="AWB">
+            <FormField label="AWB / مرجع">
               <input type="text" value={form.awb} onChange={(e) => setForm({ ...form, awb: e.target.value })} placeholder="اختياري"
                 className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-300" />
             </FormField>
 
             <FormField label="ملاحظة">
-              <input type="text" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="اختياري"
+              <input type="text" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="مثال: تصوير حملة البكج"
                 className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-indigo-300" />
             </FormField>
           </div>
 
           <div className="flex justify-between items-center gap-3 mt-4 flex-wrap">
-            <p className="text-xs text-slate-400 font-bold">
-              {MOVEMENT_TYPES.find((type) => type.value === form.movementType)?.help}
+            <p className={`text-xs font-bold ${isPhotoMovement ? 'text-violet-600' : 'text-slate-400'}`}>
+              {selectedType?.help}
             </p>
             <button onClick={handleSave} disabled={!form.sku || !form.qty || saving}
               className="flex items-center gap-2 px-5 py-2 rounded-xl font-bold text-sm bg-indigo-600 hover:bg-indigo-700 text-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed">
@@ -259,7 +272,7 @@ export default function MovementsTab() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <StatCard label="حركات اليوم" value={todayStats.count} tone="slate" />
         <StatCard label="دخول اليوم" value={todayStats.in.toLocaleString()} tone="emerald" />
-        <StatCard label="خروج اليوم" value={todayStats.out.toLocaleString()} tone="rose" />
+        <StatCard label="تصوير مفتوح" value={todayStats.photoOpen.toLocaleString()} tone="violet" />
         <StatCard label="فاقد اليوم" value={todayStats.loss.toLocaleString()} tone="amber" />
       </div>
 
@@ -286,7 +299,7 @@ export default function MovementsTab() {
           <table className="w-full text-sm">
             <thead className="bg-slate-100 text-slate-600">
               <tr>
-                {['التاريخ', 'النوع', 'SKU', 'اسم المنتج', 'الكمية', 'AWB', 'المصدر', 'ملاحظة'].map((h) => (
+                {['التاريخ', 'النوع', 'SKU', 'اسم المنتج', 'الكمية', 'AWB / مرجع', 'المصدر', 'ملاحظة'].map((h) => (
                   <th key={h} className="p-3 text-right font-black whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -329,6 +342,7 @@ function StatCard({ label, value, tone }) {
     emerald: 'text-emerald-600',
     rose: 'text-rose-600',
     amber: 'text-amber-600',
+    violet: 'text-violet-600',
   };
   return (
     <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">

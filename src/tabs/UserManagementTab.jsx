@@ -110,12 +110,13 @@ export default function UserManagementTab({ currentUserUid }) {
               <tbody className="divide-y divide-slate-100">
                 {users.map((item) => {
                   const isSaving = savingId === item.uid;
+                  const isCurrentUser = item.uid === currentUserUid;
                   return (
                     <tr key={item.uid} className="hover:bg-slate-50/60 transition-colors">
                       <td className="px-6 py-4">
                         <div className="font-black text-slate-800 flex items-center gap-2">
                           {item.name || 'بدون اسم'}
-                          {item.uid === currentUserUid && (
+                          {isCurrentUser && (
                             <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-black text-indigo-600">أنت</span>
                           )}
                         </div>
@@ -125,7 +126,7 @@ export default function UserManagementTab({ currentUserUid }) {
                       <td className="px-6 py-4 min-w-[200px]">
                         <select
                           value={item.role}
-                          disabled={isSaving}
+                          disabled={isSaving || isCurrentUser}
                           onChange={(event) => saveUser(item, { role: event.target.value })}
                           className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:opacity-60"
                         >
@@ -133,11 +134,14 @@ export default function UserManagementTab({ currentUserUid }) {
                             <option key={role} value={role}>{ROLE_LABELS[role]}</option>
                           ))}
                         </select>
+                        {isCurrentUser && (
+                          <div className="text-[11px] font-bold text-slate-400 mt-2">لا يمكن تعديل حسابك الحالي من هنا.</div>
+                        )}
                       </td>
 
                       <td className="px-6 py-4 min-w-[180px]">
                         <button
-                          disabled={isSaving}
+                          disabled={isSaving || isCurrentUser}
                           onClick={() => saveUser(item, { isActive: !item.isActive })}
                           className={`rounded-2xl px-4 py-3 text-xs font-black transition-all disabled:opacity-60 ${
                             item.isActive

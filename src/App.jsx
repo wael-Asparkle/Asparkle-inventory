@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   PackageOpen,
   ArrowRightLeft,
-  ShoppingBag,
   UsersRound,
   ShieldAlert,
   Upload,
@@ -16,7 +15,6 @@ import useAppData from './hooks/useAppData';
 import LoginPage from './components/LoginPage';
 import StockTab from './tabs/StockTab';
 import MovementsTab from './tabs/MovementsTab';
-import OrdersTab from './tabs/OrdersTab';
 import CRMTab from './tabs/CRMTab';
 import DataAdminTab from './tabs/DataAdminTab';
 import UserManagementTab from './tabs/UserManagementTab';
@@ -84,14 +82,13 @@ function App() {
   const navItems = [
     { id: 'dashboard', label: 'لوحة التحكم', icon: <LayoutDashboard size={18} />, allowedRoles: TAB_ACCESS.dashboard },
     { id: 'stock', label: 'المخزون', icon: <PackageOpen size={18} />, allowedRoles: TAB_ACCESS.stock },
-    { id: 'movements', label: 'الحركات', icon: <ArrowRightLeft size={18} />, allowedRoles: TAB_ACCESS.movements },
-    { id: 'orders', label: 'الطلبات', icon: <ShoppingBag size={18} />, allowedRoles: TAB_ACCESS.orders },
+    { id: 'movements', label: 'حركات المخزون', icon: <ArrowRightLeft size={18} />, allowedRoles: TAB_ACCESS.movements },
     { id: 'crm', label: 'العملاء', icon: <UsersRound size={18} />, allowedRoles: TAB_ACCESS.crm },
-    { id: 'import', label: 'استيراد', icon: <Upload size={18} />, allowedRoles: TAB_ACCESS.import },
-    { id: 'between', label: 'Between', icon: <Database size={18} />, allowedRoles: TAB_ACCESS.between },
-    { id: 'cs_returns', label: 'مرتجعات CS', icon: <RotateCcw size={18} />, allowedRoles: TAB_ACCESS.cs_returns },
-    { id: 'data_admin', label: 'إدارة البيانات', icon: <ShieldAlert size={18} />, allowedRoles: TAB_ACCESS.data_admin },
-    { id: 'user_management', label: 'المستخدمون', icon: <UsersRound size={18} />, allowedRoles: TAB_ACCESS.user_management },
+    { id: 'cs_returns', label: 'مرتجعات العملاء', icon: <RotateCcw size={18} />, allowedRoles: TAB_ACCESS.cs_returns },
+    { id: 'import', label: 'استيراد طلبات سلة', icon: <Upload size={18} />, allowedRoles: TAB_ACCESS.import },
+    { id: 'between', label: 'استيراد مخزون Between', icon: <Database size={18} />, allowedRoles: TAB_ACCESS.between },
+    { id: 'user_management', label: 'المستخدمون والصلاحيات', icon: <UsersRound size={18} />, allowedRoles: TAB_ACCESS.user_management },
+    { id: 'data_admin', label: 'إدارة البيانات الحساسة', icon: <ShieldAlert size={18} />, allowedRoles: TAB_ACCESS.data_admin },
   ];
 
   const allowedNavItems = navItems.filter((item) => hasAccess(item.allowedRoles));
@@ -150,7 +147,6 @@ function App() {
         {currentTab === 'dashboard' && <DashboardTab />}
         {currentTab === 'stock' && <StockTab />}
         {currentTab === 'movements' && <MovementsTab />}
-        {currentTab === 'orders' && <OrdersTab />}
         {currentTab === 'crm' && <CRMTab />}
         {currentTab === 'import' && <ImportTab />}
         {currentTab === 'between' && <BetweenImportTab />}

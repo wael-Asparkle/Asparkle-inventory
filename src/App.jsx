@@ -4,7 +4,6 @@ import {
   Calculator,
   PackageOpen,
   ShoppingBag,
-  ArrowRightLeft,
   UsersRound,
   ShieldAlert,
   Upload,
@@ -103,11 +102,6 @@ function App() {
     { id: 'price_simulator', label: 'محاكي الأسعار', icon: <Calculator size={18} />, allowedRoles: TAB_ACCESS.price_simulator },
     { id: 'user_management', label: 'المستخدمون والصلاحيات', icon: <UsersRound size={18} />, allowedRoles: TAB_ACCESS.user_management },
     { id: 'data_admin', label: 'إدارة البيانات', icon: <ShieldAlert size={18} />, allowedRoles: TAB_ACCESS.data_admin },
-  ];
-
-  // صفحة حركات المخزون مخفية مؤقتًا من الواجهة، ولم يتم حذف الملف أو منطق الصفحة.
-  const hiddenNavItems = [
-    { id: 'movements', label: 'حركات المخزون', icon: <ArrowRightLeft size={18} />, allowedRoles: TAB_ACCESS.movements },
   ];
 
   const navItems = [...mainNavItems, ...operationsNavItems, ...adminNavItems];

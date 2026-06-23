@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   LayoutDashboard,
   Calculator,
   PackageOpen,
+  ShoppingBag,
   ArrowRightLeft,
   UsersRound,
   ShieldAlert,
@@ -10,12 +11,14 @@ import {
   RotateCcw,
   Database,
   LogOut,
+  ChevronDown,
 } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
 import useAppData from './hooks/useAppData';
 import LoginPage from './components/LoginPage';
 import StockTab from './tabs/StockTab';
 import MovementsTab from './tabs/MovementsTab';
+import OrdersTab from './tabs/OrdersTab';
 import CRMTab from './tabs/CRMTab';
 import DataAdminTab from './tabs/DataAdminTab';
 import UserManagementTab from './tabs/UserManagementTab';
@@ -48,6 +51,8 @@ function StatusPage({ title, message, onLogout }) {
 }
 
 function App() {
+  const [openMenu, setOpenMenu] = useState(null);
+
   const {
     activeTab,
     setActiveTab,
@@ -81,20 +86,36 @@ function App() {
     return <StatusPage title="الحساب يحتاج تفعيل" message="تم تسجيل الدخول، لكن الحساب غير مفعل داخل نظام الصلاحيات." onLogout={logout} />;
   }
 
-  const navItems = [
+  const mainNavItems = [
     { id: 'dashboard', label: 'لوحة التحكم', icon: <LayoutDashboard size={18} />, allowedRoles: TAB_ACCESS.dashboard },
-    { id: 'price_simulator', label: 'محاكي الأسعار', icon: <Calculator size={18} />, allowedRoles: TAB_ACCESS.price_simulator },
+    { id: 'orders', label: 'الطلبات', icon: <ShoppingBag size={18} />, allowedRoles: TAB_ACCESS.orders },
     { id: 'stock', label: 'المخزون', icon: <PackageOpen size={18} />, allowedRoles: TAB_ACCESS.stock },
-    { id: 'movements', label: 'حركات المخزون', icon: <ArrowRightLeft size={18} />, allowedRoles: TAB_ACCESS.movements },
     { id: 'crm', label: 'العملاء', icon: <UsersRound size={18} />, allowedRoles: TAB_ACCESS.crm },
-    { id: 'cs_returns', label: 'مرتجعات العملاء', icon: <RotateCcw size={18} />, allowedRoles: TAB_ACCESS.cs_returns },
-    { id: 'import', label: 'استيراد طلبات سلة', icon: <Upload size={18} />, allowedRoles: TAB_ACCESS.import },
-    { id: 'between', label: 'استيراد مخزون Between', icon: <Database size={18} />, allowedRoles: TAB_ACCESS.between },
-    { id: 'user_management', label: 'المستخدمون والصلاحيات', icon: <UsersRound size={18} />, allowedRoles: TAB_ACCESS.user_management },
-    { id: 'data_admin', label: 'إدارة البيانات الحساسة', icon: <ShieldAlert size={18} />, allowedRoles: TAB_ACCESS.data_admin },
   ];
 
+  const operationsNavItems = [
+    { id: 'import', label: 'استيراد الطلبات', icon: <Upload size={18} />, allowedRoles: TAB_ACCESS.import },
+    { id: 'between', label: 'استيراد بتوين', icon: <Database size={18} />, allowedRoles: TAB_ACCESS.between },
+    { id: 'cs_returns', label: 'مرتجعات CS', icon: <RotateCcw size={18} />, allowedRoles: TAB_ACCESS.cs_returns },
+  ];
+
+  const adminNavItems = [
+    { id: 'price_simulator', label: 'محاكي الأسعار', icon: <Calculator size={18} />, allowedRoles: TAB_ACCESS.price_simulator },
+    { id: 'user_management', label: 'المستخدمون والصلاحيات', icon: <UsersRound size={18} />, allowedRoles: TAB_ACCESS.user_management },
+    { id: 'data_admin', label: 'إدارة البيانات', icon: <ShieldAlert size={18} />, allowedRoles: TAB_ACCESS.data_admin },
+  ];
+
+  // صفحة حركات المخزون مخفية مؤقتًا من الواجهة، ولم يتم حذف الملف أو منطق الصفحة.
+  const hiddenNavItems = [
+    { id: 'movements', label: 'حركات المخزون', icon: <ArrowRightLeft size={18} />, allowedRoles: TAB_ACCESS.movements },
+  ];
+
+  const navItems = [...mainNavItems, ...operationsNavItems, ...adminNavItems];
   const allowedNavItems = navItems.filter((item) => hasAccess(item.allowedRoles));
+  const allowedMainNavItems = mainNavItems.filter((item) => hasAccess(item.allowedRoles));
+  const allowedOperationsNavItems = operationsNavItems.filter((item) => hasAccess(item.allowedRoles));
+  const allowedAdminNavItems = adminNavItems.filter((item) => hasAccess(item.allowedRoles));
+
   const currentTab = allowedNavItems.some((item) => item.id === activeTab)
     ? activeTab
     : allowedNavItems[0]?.id;
@@ -103,33 +124,86 @@ function App() {
     return <StatusPage title="لا توجد صفحات متاحة" message="هذا الدور لا يملك صفحات مفعلة داخل النظام." onLogout={logout} />;
   }
 
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId);
+    setOpenMenu(null);
+  };
+
+  const renderNavButton = (item) => (
+    <button
+      key={item.id}
+      onClick={() => handleTabChange(item.id)}
+      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${
+        currentTab === item.id
+          ? 'bg-indigo-50 text-indigo-700'
+          : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+      }`}
+    >
+      {item.icon}
+      <span>{item.label}</span>
+    </button>
+  );
+
+  const renderDropdown = (menuKey, label, items) => {
+    if (!items.length) return null;
+
+    const isActive = items.some((item) => item.id === currentTab);
+
+    return (
+      <div className="relative">
+        <button
+          onClick={() => setOpenMenu(openMenu === menuKey ? null : menuKey)}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${
+            isActive
+              ? 'bg-indigo-50 text-indigo-700'
+              : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+          }`}
+        >
+          <span>{label}</span>
+          <ChevronDown
+            size={16}
+            className={`transition-transform ${openMenu === menuKey ? 'rotate-180' : ''}`}
+          />
+        </button>
+
+        {openMenu === menuKey && (
+          <div className="absolute right-0 mt-2 w-64 bg-white border border-slate-200 rounded-2xl shadow-lg p-2 z-50">
+            {items.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => handleTabChange(item.id)}
+                className={`w-full flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-bold text-right transition-all ${
+                  currentTab === item.id
+                    ? 'bg-indigo-50 text-indigo-700'
+                    : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
+                }`}
+              >
+                {item.icon}
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800" dir="rtl">
       <nav className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
         <div className="max-w-[1400px] mx-auto px-4">
-          <div className="flex items-center justify-between h-16">
-            <div className="font-black text-xl text-slate-800">
+          <div className="flex items-center justify-between h-16 gap-4">
+            <div className="font-black text-xl text-slate-800 shrink-0">
               Asparkle<span className="text-indigo-600">OS</span>
             </div>
 
-            <div className="flex gap-2 overflow-x-auto">
-              {allowedNavItems.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${
-                    currentTab === item.id
-                      ? 'bg-indigo-50 text-indigo-700'
-                      : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
-                  }`}
-                >
-                  {item.icon}
-                  <span>{item.label}</span>
-                </button>
-              ))}
+            <div className="flex items-center gap-2 overflow-x-auto flex-1 justify-center">
+              {allowedMainNavItems.map(renderNavButton)}
+              {renderDropdown('operations', 'التشغيل', allowedOperationsNavItems)}
+              {renderDropdown('admin', 'الإدارة', allowedAdminNavItems)}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <span className="hidden md:inline-flex px-3 py-1 rounded-full bg-slate-100 text-slate-500 text-xs font-black">
                 {ROLE_LABELS[currentUserRole] || currentUserRole}
               </span>
@@ -148,6 +222,7 @@ function App() {
 
       <main className="max-w-[1400px] mx-auto px-4 py-8">
         {currentTab === 'dashboard' && <DashboardTab />}
+        {currentTab === 'orders' && <OrdersTab />}
         {currentTab === 'price_simulator' && <PriceSimulatorTab />}
         {currentTab === 'stock' && <StockTab />}
         {currentTab === 'movements' && <MovementsTab />}

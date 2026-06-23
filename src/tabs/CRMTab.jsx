@@ -11,11 +11,42 @@ import { PRODUCT_CATALOG } from '../constants/masterMapping';
 // ─────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────
-const fmt  = (n) => Number(n || 0).toLocaleString('ar-SA');
+const ARABIC_DIGITS = {
+  '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+  '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+  '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',
+  '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
+};
+
+function toEnglishDigits(value) {
+  return String(value ?? '').replace(/[٠-٩۰-۹]/g, d => ARABIC_DIGITS[d] || d);
+}
+
+const fmt  = (n) => Number(n || 0).toLocaleString('en-US');
 const fmtR = (n) => `${fmt(n)} ريال`;
 
+function normalizeText(value) {
+  return String(value || '')
+    .trim()
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+}
+
+const OPERATIONAL_CUSTOMERS = new Set([
+  normalizeText('وائل أبو عمر'),
+  normalizeText('وائل ابو عمر'),
+  normalizeText('سالمين بن محفوظ'),
+]);
+
+function isOperationalOrder(order) {
+  return OPERATIONAL_CUSTOMERS.has(normalizeText(order.customer?.name));
+}
+
 function normalizePhone(phone) {
-  const digits = String(phone || '').replace(/\D/g, '');
+  const digits = toEnglishDigits(phone).replace(/\D/g, '');
   if (!digits) return '';
   if (digits.startsWith('00966')) return `966${digits.slice(5)}`;
   if (digits.startsWith('966')) return digits;
@@ -32,7 +63,7 @@ const CHANNEL_META = {
   'مباشر':           { color: '#94a3b8', bg: 'bg-slate-50',   text: 'text-slate-600'   },
 };
 
-// شريحة العميل بناءً على عدد الطلبات
+// شريحة العميل بناءً على عدد الطلبات المدفوعة
 function getSegment(ordersCount) {
   if (ordersCount >= 4) return { label: 'VIP',       color: 'text-amber-600',   bg: 'bg-amber-50',   border: 'border-amber-200',   icon: <Crown size={12} /> };
   if (ordersCount >= 2) return { label: 'متكرر',     color: 'text-indigo-600',  bg: 'bg-indigo-50',  border: 'border-indigo-200',  icon: <Repeat2 size={12} /> };
@@ -62,7 +93,7 @@ function buildCustomers(orders) {
       map[key] = {
         key,
         name:    o.customer?.name  || '—',
-        phone:   o.customer?.phone || '—',
+        phone:   toEnglishDigits(o.customer?.phone || '—'),
         city:    o.customer?.city  || '—',
         orders:  [],
         totalSpent: 0,
@@ -73,6 +104,7 @@ function buildCustomers(orders) {
         channels: new Set(),
       };
     }
+
     const c = map[key];
     const total = Number(o.total || 0);
     const phoneKey = normalizePhone(o.customer?.phone);
@@ -81,8 +113,8 @@ function buildCustomers(orders) {
     const isCompensation = isFreeOrder && Boolean(phoneKey) && paidPhoneSet.has(phoneKey);
 
     c.orders.push({
-      reference:    o.reference,
-      date:         o.date,
+      reference:    toEnglishDigits(o.reference || '—'),
+      date:         toEnglishDigits(o.date || ''),
       total,
       channel:      o.channel || 'غير محدد',
       skuBreakdown,
@@ -154,16 +186,16 @@ function CustomerRow({ customer }) {
             </span>
             {customer.compensationOrdersCount > 0 && (
               <span className="text-xs font-black px-2 py-0.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-600">
-                تعويض ×{customer.compensationOrdersCount}
+                تعويض ×{fmt(customer.compensationOrdersCount)}
               </span>
             )}
           </div>
           <div className="flex items-center gap-3 mt-0.5">
             <span className="flex items-center gap-1 text-xs text-slate-400">
-              <MapPin size={11} /> {customer.city}
+              <MapPin size={11} /> {toEnglishDigits(customer.city)}
             </span>
             <span className="flex items-center gap-1 text-xs text-slate-400">
-              <Phone size={11} /> {customer.phone}
+              <Phone size={11} /> {toEnglishDigits(customer.phone)}
             </span>
           </div>
         </div>
@@ -173,7 +205,7 @@ function CustomerRow({ customer }) {
           <div className="text-center">
             <p className="text-xs text-slate-400 font-bold">الطلبات المدفوعة</p>
             <p className={`text-lg font-black ${customer.ordersCount >= 2 ? 'text-indigo-600' : 'text-slate-700'}`}>
-              {customer.ordersCount}
+              {fmt(customer.ordersCount)}
             </p>
           </div>
           <div className="text-center">
@@ -182,13 +214,13 @@ function CustomerRow({ customer }) {
           </div>
           <div className="text-center">
             <p className="text-xs text-slate-400 font-bold">آخر طلب</p>
-            <p className="text-xs font-bold text-slate-500">{customer.lastOrder?.slice(0,10) || '—'}</p>
+            <p className="text-xs font-bold text-slate-500">{toEnglishDigits(customer.lastOrder?.slice(0,10) || '—')}</p>
           </div>
           {customer.topSku && (
             <div className="text-center hidden lg:block">
               <p className="text-xs text-slate-400 font-bold">المنتج المفضل</p>
               <p className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg">
-                {PRODUCT_CATALOG[customer.topSku]?.name || customer.topSku}
+                {PRODUCT_CATALOG[customer.topSku]?.name || toEnglishDigits(customer.topSku)}
               </p>
             </div>
           )}
@@ -215,10 +247,10 @@ function CustomerRow({ customer }) {
                   .map(([sku, qty]) => (
                     <div key={sku} className="bg-white border border-slate-200 rounded-xl px-3 py-2 flex items-center gap-2">
                       <span className="text-xs font-black text-slate-700">
-                        {PRODUCT_CATALOG[sku]?.name || sku}
+                        {PRODUCT_CATALOG[sku]?.name || toEnglishDigits(sku)}
                       </span>
                       <span className="text-xs font-black bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-lg">
-                        ×{qty}
+                        ×{fmt(qty)}
                       </span>
                     </div>
                   ))}
@@ -229,7 +261,7 @@ function CustomerRow({ customer }) {
           {/* سجل الطلبات */}
           <div>
             <p className="text-xs font-black text-slate-500 mb-2 flex items-center gap-1">
-              <Calendar size={12} /> سجل الطلبات ({customer.allOrdersCount || customer.ordersCount})
+              <Calendar size={12} /> سجل الطلبات ({fmt(customer.allOrdersCount || customer.ordersCount)})
             </p>
             <div className="space-y-2">
               {customer.orders.map((o, i) => {
@@ -242,11 +274,11 @@ function CustomerRow({ customer }) {
                       {i === 0 && <span className="text-xs bg-emerald-100 text-emerald-700 font-black px-1.5 py-0.5 rounded-md">آخر طلب</span>}
                       {o.isCompensation && <span className="text-xs bg-rose-100 text-rose-700 font-black px-1.5 py-0.5 rounded-md">تعويض</span>}
                       {o.isFreeOrder && !o.isCompensation && <span className="text-xs bg-slate-100 text-slate-600 font-black px-1.5 py-0.5 rounded-md">طلب مجاني</span>}
-                      <span className="text-xs font-mono text-slate-500">{o.reference}</span>
+                      <span className="text-xs font-mono text-slate-500">{toEnglishDigits(o.reference)}</span>
                     </div>
                     {/* التاريخ */}
                     <span className="flex items-center gap-1 text-xs text-slate-400 font-bold">
-                      <Calendar size={11} /> {o.date?.slice(0,10) || '—'}
+                      <Calendar size={11} /> {toEnglishDigits(o.date?.slice(0,10) || '—')}
                     </span>
                     {/* القناة */}
                     <span className={`text-xs font-black px-2 py-0.5 rounded-lg ${chMeta.bg} ${chMeta.text}`}>
@@ -256,7 +288,7 @@ function CustomerRow({ customer }) {
                     <div className="flex flex-wrap gap-1">
                       {Object.entries(o.skuBreakdown).map(([sku, qty]) => (
                         <span key={sku} className="text-xs bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded-md">
-                          {PRODUCT_CATALOG[sku]?.name || sku} ×{qty}
+                          {PRODUCT_CATALOG[sku]?.name || toEnglishDigits(sku)} ×{fmt(qty)}
                         </span>
                       ))}
                     </div>
@@ -273,7 +305,7 @@ function CustomerRow({ customer }) {
             <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 flex items-center gap-3">
               <Repeat2 size={16} className="text-indigo-500 flex-shrink-0" />
               <p className="text-xs font-bold text-indigo-700">
-                كرّر الشراء <span className="font-black text-indigo-800">{customer.ordersCount} مرات</span>
+                كرّر الشراء <span className="font-black text-indigo-800">{fmt(customer.ordersCount)} مرات</span>
                 {' '}— متوسط قيمة الطلب: <span className="font-black text-indigo-800">{fmtR(Math.round(customer.totalSpent / (customer.paidOrdersCount || customer.ordersCount)))}</span>
               </p>
             </div>
@@ -303,7 +335,9 @@ export default function CRMTab() {
     return () => unsub();
   }, []);
 
-  const customers = useMemo(() => buildCustomers(orders), [orders]);
+  const customerOrders = useMemo(() => orders.filter(o => !isOperationalOrder(o)), [orders]);
+  const operationalOrdersCount = Math.max(0, orders.length - customerOrders.length);
+  const customers = useMemo(() => buildCustomers(customerOrders), [customerOrders]);
 
   // ── KPIs ──
   const stats = useMemo(() => ({
@@ -314,7 +348,7 @@ export default function CRMTab() {
     oneTime: customers.filter(c => c.ordersCount === 1).length,
     totalRev: customers.reduce((s, c) => s + c.totalSpent, 0),
     avgLTV:   customers.length ? Math.round(customers.reduce((s, c) => s + c.totalSpent, 0) / customers.length) : 0,
-    repeatRate: customers.length ? ((customers.filter(c => c.ordersCount >= 2).length / customers.length) * 100).toFixed(1) : 0,
+    repeatRate: customers.length ? ((customers.filter(c => c.ordersCount >= 2).length / customers.length) * 100).toFixed(1) : '0.0',
   }), [customers]);
 
   // ── فلترة + ترتيب ──
@@ -325,11 +359,11 @@ export default function CRMTab() {
     if (segment === 'new')      list = list.filter(c => c.ordersCount === 1);
     if (segment === 'one_time') list = list.filter(c => c.ordersCount === 1);
     if (search.trim()) {
-      const q = search.trim().toLowerCase();
+      const q = toEnglishDigits(search.trim()).toLowerCase();
       list = list.filter(c =>
-        c.name.toLowerCase().includes(q) ||
-        c.phone.includes(q) ||
-        c.city.toLowerCase().includes(q)
+        toEnglishDigits(c.name).toLowerCase().includes(q) ||
+        toEnglishDigits(c.phone).includes(q) ||
+        toEnglishDigits(c.city).toLowerCase().includes(q)
       );
     }
     if (sortBy === 'spent')   list.sort((a, b) => b.totalSpent - a.totalSpent);
@@ -355,7 +389,7 @@ export default function CRMTab() {
             <UsersRound size={22} className="text-indigo-500" /> إدارة العملاء (CRM)
           </h2>
           <p className="text-slate-400 text-xs mt-1">
-            <span className="font-black text-indigo-500">{fmt(stats.total)}</span> عميل فريد من {fmt(orders.length)} طلب
+            <span className="font-black text-indigo-500">{fmt(stats.total)}</span> عميل فريد من {fmt(customerOrders.length)} طلب
           </p>
         </div>
         <div className="flex items-center gap-2 text-xs text-emerald-600 font-black bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-100">
@@ -363,6 +397,15 @@ export default function CRMTab() {
           متصل بـ Firebase
         </div>
       </div>
+
+      {operationalOrdersCount > 0 && (
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 flex items-center gap-3">
+          <Package size={18} className="text-slate-500 flex-shrink-0" />
+          <p className="text-xs font-bold text-slate-600 leading-6">
+            تم استبعاد {fmt(operationalOrdersCount)} طلب تشغيلي/تعويض من تحليل العملاء حتى لا يؤثر على VIP أو LTV أو معدل التكرار.
+          </p>
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -399,7 +442,7 @@ export default function CRMTab() {
                 <span className={s.color}>{s.icon}</span>
                 <span className={`text-sm font-black ${segment === s.id ? s.color : 'text-slate-600'}`}>{s.label}</span>
               </div>
-              <span className={`text-xl font-black ${s.color}`}>{s.count}</span>
+              <span className={`text-xl font-black ${s.color}`}>{fmt(s.count)}</span>
             </button>
           ))}
         </div>

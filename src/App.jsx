@@ -142,13 +142,19 @@ function App() {
     if (!items.length) return null;
 
     const isActive = items.some((item) => item.id === currentTab);
+    const isOpen = openMenu === menuKey;
 
     return (
-      <div className="relative">
+      <div
+        className="relative"
+        onMouseEnter={() => setOpenMenu(menuKey)}
+        onMouseLeave={() => setOpenMenu(null)}
+      >
         <button
-          onClick={() => setOpenMenu(openMenu === menuKey ? null : menuKey)}
+          type="button"
+          onClick={() => setOpenMenu(isOpen ? null : menuKey)}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all ${
-            isActive
+            isActive || isOpen
               ? 'bg-indigo-50 text-indigo-700'
               : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
           }`}
@@ -156,12 +162,12 @@ function App() {
           <span>{label}</span>
           <ChevronDown
             size={16}
-            className={`transition-transform ${openMenu === menuKey ? 'rotate-180' : ''}`}
+            className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}
           />
         </button>
 
-        {openMenu === menuKey && (
-          <div className="absolute right-0 mt-2 w-64 bg-white border border-slate-200 rounded-2xl shadow-lg p-2 z-50">
+        {isOpen && (
+          <div className="absolute right-0 top-full mt-2 w-64 bg-white border border-slate-200 rounded-2xl shadow-xl p-2 z-[999]">
             {items.map((item) => (
               <button
                 key={item.id}
@@ -191,7 +197,7 @@ function App() {
               Asparkle<span className="text-indigo-600">OS</span>
             </div>
 
-            <div className="flex items-center gap-2 overflow-x-auto flex-1 justify-center">
+            <div className="flex items-center gap-2 flex-1 justify-center overflow-visible">
               {allowedMainNavItems.map(renderNavButton)}
               {renderDropdown('operations', 'التشغيل', allowedOperationsNavItems)}
               {renderDropdown('admin', 'الإدارة', allowedAdminNavItems)}

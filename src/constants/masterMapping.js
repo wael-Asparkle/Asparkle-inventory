@@ -24,31 +24,44 @@ export const BUNDLE_COSTS = {
 
 // تكاليف القنوات التسويقية الثابتة
 export const CHANNEL_COSTS = {
-  'سعيدينيو':        5000,
-  'واتساب':          700,
-  'دستور':           15000,
-  'TikTok/Snapchat': 2500,
+  'سعيدينيو':              5000,
+  'واتساب':                700,
+  'دستور':                 15000,
+  'TikTok/Snapchat':       2500,
+  'سعيدينيو - تأثير ممتد': 0,
+  'دستور - تأثير ممتد':    0,
+  'غير منسوب':             0,
 };
 
 // ============================================================
 //  ASG Mapping
-//  items     = المنتجات التي تُخصم من المخزون
-//  channel   = القناة التسويقية (ثابتة أو حسب التاريخ)
+//  items           = المنتجات التي تُخصم من المخزون
+//  channel         = القناة التسويقية الثابتة
+//  channelTimeline = القناة حسب تاريخ الطلب
+//
+//  قاعدة المشاهير المعتمدة:
+//  - التأثير المباشر = 5 أيام من النشر/التذكير
+//  - التأثير الممتد = حتى 14 يوم
+//  - بعد ذلك لا تُنسب المبيعات للمشهور
 // ============================================================
 export const ASG_MAPPING = {
   asg001: {
     type: 'bundle',
     items: ['9000901', '9000902'],
-    // القناة تتغير حسب التاريخ
     channelTimeline: [
-      { from: '2026-01-01', to: '2026-02-25', channel: 'سعيدينيو' },
-      { from: '2026-02-26', to: null,          channel: 'واتساب'   },
+      { from: '2026-01-05', to: '2026-01-10', channel: 'سعيدينيو' },
+      { from: '2026-01-11', to: '2026-01-19', channel: 'سعيدينيو - تأثير ممتد' },
+      { from: '2026-01-20', to: null,          channel: 'غير منسوب' },
     ],
   },
   asg002: {
     type: 'bundle',
     items: ['9000904', '9000905', '9000906', '9000908', '9000909'],
-    channel: 'دستور',
+    channelTimeline: [
+      { from: '2026-03-02', to: '2026-03-07', channel: 'دستور' },
+      { from: '2026-03-08', to: '2026-03-16', channel: 'دستور - تأثير ممتد' },
+      { from: '2026-03-17', to: null,          channel: 'غير منسوب' },
+    ],
   },
   asg003: {
     type: 'bundle',
@@ -58,9 +71,42 @@ export const ASG_MAPPING = {
   asg004: {
     type: 'bundle',
     items: ['9000904', '9000905', '9000906', '9000908', '9000909'],
-    channel: 'واتساب',
+    channelTimeline: [
+      { from: '1900-01-01', to: '2026-05-03', channel: 'واتساب' },
+      { from: '2026-05-04', to: '2026-05-12', channel: 'سعيدينيو' },
+      { from: '2026-05-13', to: '2026-05-21', channel: 'سعيدينيو - تأثير ممتد' },
+      { from: '2026-05-22', to: null,          channel: 'واتساب' },
+    ],
   },
 };
+
+// ============================================================
+//  Date Helpers
+// ============================================================
+function normalizeOrderDate(orderDate) {
+  const raw = String(orderDate || '').trim();
+  if (!raw) return '';
+
+  // يدعم الصيغة: 2026-03-02 أو 2026-03-02 15:30
+  const isoMatch = raw.match(/\d{4}-\d{2}-\d{2}/);
+  if (isoMatch) return isoMatch[0];
+
+  // يدعم الصيغة: 02/03/2026 أو 02-03-2026
+  const dmyMatch = raw.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (dmyMatch) {
+    const [, dd, mm, yyyy] = dmyMatch;
+    return `${yyyy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+  }
+
+  return raw.slice(0, 10);
+}
+
+function isWithinRange(date, from, to) {
+  if (!date || !from) return false;
+  if (date < from) return false;
+  if (to && date > to) return false;
+  return true;
+}
 
 // ============================================================
 //  Attribution Engine
@@ -75,15 +121,16 @@ export function resolveChannel(asgCode, orderDate) {
 
   // قناة حسب التاريخ
   if (mapping.channelTimeline) {
-    const date = new Date(orderDate);
+    const date = normalizeOrderDate(orderDate);
+
     for (const entry of mapping.channelTimeline) {
-      const from = new Date(entry.from);
-      const to   = entry.to ? new Date(entry.to) : null;
-      if (date >= from && (!to || date <= to)) return entry.channel;
+      if (isWithinRange(date, entry.from, entry.to)) {
+        return entry.channel;
+      }
     }
   }
 
-  return 'غير محدد';
+  return 'غير منسوب';
 }
 
 // ============================================================
@@ -141,6 +188,6 @@ export function parseOrderRow(row) {
     skuBreakdown:  skuMap,
     paymentMethod: String(row['طريقة الدفع']   || '').trim(),
     total: parseFloat(row['إجمالي الطلب (شامل التخفيضات)']) || 0, 
-date,
+    date,
   };
 }

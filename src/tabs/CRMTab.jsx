@@ -22,8 +22,28 @@ function toEnglishDigits(value) {
   return String(value ?? '').replace(/[٠-٩۰-۹]/g, d => ARABIC_DIGITS[d] || d);
 }
 
-const fmt  = (n) => Number(n || 0).toLocaleString('en-US');
-const fmtR = (n) => `${fmt(n)} ريال`;
+function toNumber(value) {
+  const n = Number(toEnglishDigits(value).replace(/,/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+const fmt = (n) => toEnglishDigits(toNumber(n).toLocaleString('en-US'));
+
+function Num({ children, className = '' }) {
+  return (
+    <span dir="ltr" lang="en" className={`font-mono tabular-nums ${className}`}>
+      {toEnglishDigits(children)}
+    </span>
+  );
+}
+
+function Money({ value, className = '' }) {
+  return (
+    <span className={className}>
+      <Num>{fmt(value)}</Num> ريال
+    </span>
+  );
+}
 
 function normalizeText(value) {
   return String(value || '')
@@ -82,7 +102,7 @@ function buildCustomers(orders) {
   const map = {};
   const paidPhoneSet = new Set(
     orders
-      .filter(o => Number(o.total || 0) > 0)
+      .filter(o => toNumber(o.total) > 0)
       .map(o => normalizePhone(o.customer?.phone))
       .filter(Boolean)
   );
@@ -100,13 +120,13 @@ function buildCustomers(orders) {
         paidOrdersCount: 0,
         freeOrdersCount: 0,
         compensationOrdersCount: 0,
-        skuCount: {},     // { sku: qty }
+        skuCount: {},
         channels: new Set(),
       };
     }
 
     const c = map[key];
-    const total = Number(o.total || 0);
+    const total = toNumber(o.total);
     const phoneKey = normalizePhone(o.customer?.phone);
     const skuBreakdown = o.skuBreakdown || {};
     const isFreeOrder = total <= 0;
@@ -127,7 +147,7 @@ function buildCustomers(orders) {
       c.totalSpent += total;
       c.paidOrdersCount += 1;
       Object.entries(skuBreakdown).forEach(([sku, qty]) => {
-        c.skuCount[sku] = (c.skuCount[sku] || 0) + Number(qty || 0);
+        c.skuCount[sku] = (c.skuCount[sku] || 0) + toNumber(qty);
       });
     } else {
       c.freeOrdersCount += 1;
@@ -137,7 +157,6 @@ function buildCustomers(orders) {
     c.channels.add(o.channel || 'غير محدد');
   });
 
-  // ترتيب الطلبات زمنياً
   return Object.values(map).map(c => {
     const sortedOrders = [...c.orders].sort((a, b) => new Date(b.date) - new Date(a.date));
     const paidOrdersCount = c.paidOrdersCount;
@@ -166,18 +185,15 @@ function CustomerRow({ customer }) {
 
   return (
     <div className={`border rounded-2xl overflow-hidden transition-all ${expanded ? 'border-indigo-200' : 'border-slate-100'}`}>
-      {/* الصف الرئيسي */}
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-4 px-5 py-4 bg-white hover:bg-slate-50 transition-colors text-right"
       >
-        {/* Avatar */}
         <div className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm flex-shrink-0"
           style={{ background: `${customer.ordersCount >= 2 ? '#eef2ff' : '#f8fafc'}`, color: '#6366f1' }}>
           {(customer.name || '?')[0]}
         </div>
 
-        {/* الاسم والمدينة */}
         <div className="flex-1 min-w-0 text-right">
           <div className="flex items-center gap-2">
             <p className="text-sm font-black text-slate-800 truncate">{customer.name}</p>
@@ -186,7 +202,7 @@ function CustomerRow({ customer }) {
             </span>
             {customer.compensationOrdersCount > 0 && (
               <span className="text-xs font-black px-2 py-0.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-600">
-                تعويض ×{fmt(customer.compensationOrdersCount)}
+                تعويض ×<Num>{fmt(customer.compensationOrdersCount)}</Num>
               </span>
             )}
           </div>
@@ -195,32 +211,31 @@ function CustomerRow({ customer }) {
               <MapPin size={11} /> {toEnglishDigits(customer.city)}
             </span>
             <span className="flex items-center gap-1 text-xs text-slate-400">
-              <Phone size={11} /> {toEnglishDigits(customer.phone)}
+              <Phone size={11} /> <Num>{customer.phone}</Num>
             </span>
           </div>
         </div>
 
-        {/* الإحصائيات */}
         <div className="hidden md:flex items-center gap-6 flex-shrink-0">
           <div className="text-center">
             <p className="text-xs text-slate-400 font-bold">الطلبات المدفوعة</p>
             <p className={`text-lg font-black ${customer.ordersCount >= 2 ? 'text-indigo-600' : 'text-slate-700'}`}>
-              {fmt(customer.ordersCount)}
+              <Num>{fmt(customer.ordersCount)}</Num>
             </p>
           </div>
           <div className="text-center">
             <p className="text-xs text-slate-400 font-bold">الإجمالي</p>
-            <p className="text-sm font-black text-emerald-600">{fmtR(customer.totalSpent)}</p>
+            <p className="text-sm font-black text-emerald-600"><Money value={customer.totalSpent} /></p>
           </div>
           <div className="text-center">
             <p className="text-xs text-slate-400 font-bold">آخر طلب</p>
-            <p className="text-xs font-bold text-slate-500">{toEnglishDigits(customer.lastOrder?.slice(0,10) || '—')}</p>
+            <p className="text-xs font-bold text-slate-500"><Num>{customer.lastOrder?.slice(0,10) || '—'}</Num></p>
           </div>
           {customer.topSku && (
             <div className="text-center hidden lg:block">
               <p className="text-xs text-slate-400 font-bold">المنتج المفضل</p>
               <p className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg">
-                {PRODUCT_CATALOG[customer.topSku]?.name || toEnglishDigits(customer.topSku)}
+                {toEnglishDigits(PRODUCT_CATALOG[customer.topSku]?.name || customer.topSku)}
               </p>
             </div>
           )}
@@ -231,11 +246,8 @@ function CustomerRow({ customer }) {
         </div>
       </button>
 
-      {/* التفاصيل الموسّعة */}
       {expanded && (
         <div className="bg-slate-50 border-t border-slate-100 px-5 py-4 space-y-4">
-
-          {/* المنتجات المشتراة */}
           {Object.keys(customer.skuCount).length > 0 && (
             <div>
               <p className="text-xs font-black text-slate-500 mb-2 flex items-center gap-1">
@@ -247,10 +259,10 @@ function CustomerRow({ customer }) {
                   .map(([sku, qty]) => (
                     <div key={sku} className="bg-white border border-slate-200 rounded-xl px-3 py-2 flex items-center gap-2">
                       <span className="text-xs font-black text-slate-700">
-                        {PRODUCT_CATALOG[sku]?.name || toEnglishDigits(sku)}
+                        {toEnglishDigits(PRODUCT_CATALOG[sku]?.name || sku)}
                       </span>
                       <span className="text-xs font-black bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-lg">
-                        ×{fmt(qty)}
+                        ×<Num>{fmt(qty)}</Num>
                       </span>
                     </div>
                   ))}
@@ -258,10 +270,9 @@ function CustomerRow({ customer }) {
             </div>
           )}
 
-          {/* سجل الطلبات */}
           <div>
             <p className="text-xs font-black text-slate-500 mb-2 flex items-center gap-1">
-              <Calendar size={12} /> سجل الطلبات ({fmt(customer.allOrdersCount || customer.ordersCount)})
+              <Calendar size={12} /> سجل الطلبات (<Num>{fmt(customer.allOrdersCount || customer.ordersCount)}</Num>)
             </p>
             <div className="space-y-2">
               {customer.orders.map((o, i) => {
@@ -269,44 +280,38 @@ function CustomerRow({ customer }) {
                 return (
                   <div key={o.reference}
                     className="bg-white border border-slate-100 rounded-xl px-4 py-3 flex items-center gap-4 flex-wrap">
-                    {/* رقم الطلب */}
                     <div className="flex items-center gap-2">
                       {i === 0 && <span className="text-xs bg-emerald-100 text-emerald-700 font-black px-1.5 py-0.5 rounded-md">آخر طلب</span>}
                       {o.isCompensation && <span className="text-xs bg-rose-100 text-rose-700 font-black px-1.5 py-0.5 rounded-md">تعويض</span>}
                       {o.isFreeOrder && !o.isCompensation && <span className="text-xs bg-slate-100 text-slate-600 font-black px-1.5 py-0.5 rounded-md">طلب مجاني</span>}
-                      <span className="text-xs font-mono text-slate-500">{toEnglishDigits(o.reference)}</span>
+                      <span className="text-xs font-mono text-slate-500"><Num>{o.reference}</Num></span>
                     </div>
-                    {/* التاريخ */}
                     <span className="flex items-center gap-1 text-xs text-slate-400 font-bold">
-                      <Calendar size={11} /> {toEnglishDigits(o.date?.slice(0,10) || '—')}
+                      <Calendar size={11} /> <Num>{o.date?.slice(0,10) || '—'}</Num>
                     </span>
-                    {/* القناة */}
                     <span className={`text-xs font-black px-2 py-0.5 rounded-lg ${chMeta.bg} ${chMeta.text}`}>
                       {o.channel}
                     </span>
-                    {/* المنتجات */}
                     <div className="flex flex-wrap gap-1">
                       {Object.entries(o.skuBreakdown).map(([sku, qty]) => (
                         <span key={sku} className="text-xs bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded-md">
-                          {PRODUCT_CATALOG[sku]?.name || toEnglishDigits(sku)} ×{fmt(qty)}
+                          {toEnglishDigits(PRODUCT_CATALOG[sku]?.name || sku)} ×<Num>{fmt(qty)}</Num>
                         </span>
                       ))}
                     </div>
-                    {/* الإجمالي */}
-                    <span className={`text-sm font-black mr-auto ${o.isFreeOrder ? 'text-rose-600' : 'text-emerald-600'}`}>{fmtR(o.total)}</span>
+                    <span className={`text-sm font-black mr-auto ${o.isFreeOrder ? 'text-rose-600' : 'text-emerald-600'}`}><Money value={o.total} /></span>
                   </div>
                 );
               })}
             </div>
           </div>
 
-          {/* ملخص التكرار */}
           {customer.ordersCount >= 2 && (
             <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 flex items-center gap-3">
               <Repeat2 size={16} className="text-indigo-500 flex-shrink-0" />
               <p className="text-xs font-bold text-indigo-700">
-                كرّر الشراء <span className="font-black text-indigo-800">{fmt(customer.ordersCount)} مرات</span>
-                {' '}— متوسط قيمة الطلب: <span className="font-black text-indigo-800">{fmtR(Math.round(customer.totalSpent / (customer.paidOrdersCount || customer.ordersCount)))}</span>
+                كرّر الشراء <span className="font-black text-indigo-800"><Num>{fmt(customer.ordersCount)}</Num> مرات</span>
+                {' '}— متوسط قيمة الطلب: <span className="font-black text-indigo-800"><Money value={Math.round(customer.totalSpent / (customer.paidOrdersCount || customer.ordersCount))} /></span>
               </p>
             </div>
           )}
@@ -323,8 +328,8 @@ export default function CRMTab() {
   const [orders,   setOrders]   = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [search,   setSearch]   = useState('');
-  const [segment,  setSegment]  = useState('all');   // all | vip | repeat | new | one_time
-  const [sortBy,   setSortBy]   = useState('spent'); // spent | orders | recent
+  const [segment,  setSegment]  = useState('all');
+  const [sortBy,   setSortBy]   = useState('spent');
 
   useEffect(() => {
     const col = collection(db, 'artifacts', appId, 'public', 'data', 'orders');
@@ -339,7 +344,6 @@ export default function CRMTab() {
   const operationalOrdersCount = Math.max(0, orders.length - customerOrders.length);
   const customers = useMemo(() => buildCustomers(customerOrders), [customerOrders]);
 
-  // ── KPIs ──
   const stats = useMemo(() => ({
     total:   customers.length,
     vip:     customers.filter(c => c.ordersCount >= 4).length,
@@ -351,7 +355,6 @@ export default function CRMTab() {
     repeatRate: customers.length ? ((customers.filter(c => c.ordersCount >= 2).length / customers.length) * 100).toFixed(1) : '0.0',
   }), [customers]);
 
-  // ── فلترة + ترتيب ──
   const filtered = useMemo(() => {
     let list = [...customers];
     if (segment === 'vip')      list = list.filter(c => c.ordersCount >= 4);
@@ -380,16 +383,14 @@ export default function CRMTab() {
   );
 
   return (
-    <div className="space-y-6" dir="rtl">
-
-      {/* HEADER */}
+    <div className="space-y-6" dir="rtl" lang="en">
       <div className="bg-white rounded-3xl border border-slate-100 shadow-sm px-8 py-5 flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
             <UsersRound size={22} className="text-indigo-500" /> إدارة العملاء (CRM)
           </h2>
           <p className="text-slate-400 text-xs mt-1">
-            <span className="font-black text-indigo-500">{fmt(stats.total)}</span> عميل فريد من {fmt(customerOrders.length)} طلب
+            <span className="font-black text-indigo-500"><Num>{fmt(stats.total)}</Num></span> عميل فريد من <Num>{fmt(customerOrders.length)}</Num> طلب
           </p>
         </div>
         <div className="flex items-center gap-2 text-xs text-emerald-600 font-black bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-100">
@@ -402,18 +403,17 @@ export default function CRMTab() {
         <div className="bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 flex items-center gap-3">
           <Package size={18} className="text-slate-500 flex-shrink-0" />
           <p className="text-xs font-bold text-slate-600 leading-6">
-            تم استبعاد {fmt(operationalOrdersCount)} طلب تشغيلي/تعويض من تحليل العملاء حتى لا يؤثر على VIP أو LTV أو معدل التكرار.
+            تم استبعاد <Num>{fmt(operationalOrdersCount)}</Num> طلب تشغيلي/تعويض من تحليل العملاء حتى لا يؤثر على VIP أو LTV أو معدل التكرار.
           </p>
         </div>
       )}
 
-      {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'إجمالي العملاء',   value: fmt(stats.total),          sub: 'عميل فريد',           icon: <UsersRound size={20} className="text-indigo-600" />,  bg: 'bg-indigo-50',  border: 'border-indigo-100'  },
-          { label: 'VIP (4+ طلبات)',    value: fmt(stats.vip),            sub: `${pct(stats.vip, stats.total)}% من العملاء`, icon: <Crown size={20} className="text-amber-600" />, bg: 'bg-amber-50', border: 'border-amber-100' },
-          { label: 'معدل التكرار',      value: `${stats.repeatRate}%`,    sub: 'مشتروا أكثر من مرة',  icon: <Repeat2 size={20} className="text-emerald-600" />,   bg: 'bg-emerald-50', border: 'border-emerald-100' },
-          { label: 'متوسط LTV',         value: fmtR(stats.avgLTV),        sub: 'قيمة العميل مدى الحياة', icon: <TrendingUp size={20} className="text-blue-600" />, bg: 'bg-blue-50',    border: 'border-blue-100'    },
+          { label: 'إجمالي العملاء', value: <Num>{fmt(stats.total)}</Num>, sub: 'عميل فريد', icon: <UsersRound size={20} className="text-indigo-600" />, bg: 'bg-indigo-50', border: 'border-indigo-100' },
+          { label: 'VIP (4+ طلبات)', value: <Num>{fmt(stats.vip)}</Num>, sub: <><Num>{pct(stats.vip, stats.total)}</Num>% من العملاء</>, icon: <Crown size={20} className="text-amber-600" />, bg: 'bg-amber-50', border: 'border-amber-100' },
+          { label: 'معدل التكرار', value: <><Num>{stats.repeatRate}</Num>%</>, sub: 'مشتروا أكثر من مرة', icon: <Repeat2 size={20} className="text-emerald-600" />, bg: 'bg-emerald-50', border: 'border-emerald-100' },
+          { label: 'متوسط LTV', value: <Money value={stats.avgLTV} />, sub: 'قيمة العميل مدى الحياة', icon: <TrendingUp size={20} className="text-blue-600" />, bg: 'bg-blue-50', border: 'border-blue-100' },
         ].map((k, i) => (
           <div key={i} className={`${k.bg} border ${k.border} rounded-2xl p-5`}>
             <div className="w-9 h-9 bg-white rounded-xl flex items-center justify-center shadow-sm mb-3">{k.icon}</div>
@@ -424,14 +424,13 @@ export default function CRMTab() {
         ))}
       </div>
 
-      {/* شرائح سريعة */}
       <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[
-            { id: 'vip',      label: 'VIP',        count: stats.vip,     color: 'text-amber-600',  bg: 'bg-amber-50',  border: 'border-amber-200',  icon: <Crown size={14} />       },
-            { id: 'repeat',   label: 'متكرر',      count: stats.repeat,  color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-200', icon: <Repeat2 size={14} />     },
-            { id: 'new',      label: 'جديد',       count: stats.newC,    color: 'text-slate-500',  bg: 'bg-slate-50',  border: 'border-slate-200',  icon: <Star size={14} />        },
-            { id: 'one_time', label: 'لم يكرروا',  count: stats.oneTime, color: 'text-rose-600',   bg: 'bg-rose-50',   border: 'border-rose-200',   icon: <ShoppingBag size={14} /> },
+            { id: 'vip',      label: 'VIP',       count: stats.vip,     color: 'text-amber-600',  bg: 'bg-amber-50',  border: 'border-amber-200',  icon: <Crown size={14} />       },
+            { id: 'repeat',   label: 'متكرر',     count: stats.repeat,  color: 'text-indigo-600', bg: 'bg-indigo-50', border: 'border-indigo-200', icon: <Repeat2 size={14} />     },
+            { id: 'new',      label: 'جديد',      count: stats.newC,    color: 'text-slate-500',  bg: 'bg-slate-50',  border: 'border-slate-200',  icon: <Star size={14} />        },
+            { id: 'one_time', label: 'لم يكرروا', count: stats.oneTime, color: 'text-rose-600',   bg: 'bg-rose-50',   border: 'border-rose-200',   icon: <ShoppingBag size={14} /> },
           ].map(s => (
             <button key={s.id}
               onClick={() => setSegment(segment === s.id ? 'all' : s.id)}
@@ -442,7 +441,7 @@ export default function CRMTab() {
                 <span className={s.color}>{s.icon}</span>
                 <span className={`text-sm font-black ${segment === s.id ? s.color : 'text-slate-600'}`}>{s.label}</span>
               </div>
-              <span className={`text-xl font-black ${s.color}`}>{fmt(s.count)}</span>
+              <span className={`text-xl font-black ${s.color}`}><Num>{fmt(s.count)}</Num></span>
             </button>
           ))}
         </div>
@@ -457,7 +456,6 @@ export default function CRMTab() {
         </div>
       )}
 
-      {/* البحث والفلاتر */}
       <div className="bg-white rounded-3xl border border-slate-100 shadow-sm px-5 py-4 flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-48">
           <Search size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -488,10 +486,9 @@ export default function CRMTab() {
             );
           })}
         </div>
-        <span className="text-xs text-slate-400 font-bold">{fmt(filtered.length)} نتيجة</span>
+        <span className="text-xs text-slate-400 font-bold"><Num>{fmt(filtered.length)}</Num> نتيجة</span>
       </div>
 
-      {/* قائمة العملاء */}
       {filtered.length === 0 ? (
         <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-16 text-center">
           <UsersRound size={40} className="text-slate-200 mx-auto mb-3" />
@@ -508,4 +505,6 @@ export default function CRMTab() {
   );
 }
 
-function pct(a, b) { return b ? ((a / b) * 100).toFixed(0) : '0'; }
+function pct(a, b) {
+  return b ? toEnglishDigits(((a / b) * 100).toFixed(0)) : '0';
+}

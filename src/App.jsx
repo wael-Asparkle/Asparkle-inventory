@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   LayoutDashboard,
+  Calculator,
   PackageOpen,
   ArrowRightLeft,
   UsersRound,
@@ -22,6 +23,7 @@ import ImportTab from './tabs/ImportTab';
 import CSReturnsTab from './tabs/CSReturnsTab';
 import BetweenImportTab from './tabs/BetweenImportTab';
 import DashboardTab from './tabs/DashboardTab';
+import PriceSimulatorTab from './tabs/PriceSimulatorTab';
 import { PERMISSIONS, ROLE_LABELS, TAB_ACCESS } from './constants/ui';
 
 function StatusPage({ title, message, onLogout }) {
@@ -81,6 +83,7 @@ function App() {
 
   const navItems = [
     { id: 'dashboard', label: 'لوحة التحكم', icon: <LayoutDashboard size={18} />, allowedRoles: TAB_ACCESS.dashboard },
+    { id: 'price_simulator', label: 'محاكي الأسعار', icon: <Calculator size={18} />, allowedRoles: TAB_ACCESS.price_simulator },
     { id: 'stock', label: 'المخزون', icon: <PackageOpen size={18} />, allowedRoles: TAB_ACCESS.stock },
     { id: 'movements', label: 'حركات المخزون', icon: <ArrowRightLeft size={18} />, allowedRoles: TAB_ACCESS.movements },
     { id: 'crm', label: 'العملاء', icon: <UsersRound size={18} />, allowedRoles: TAB_ACCESS.crm },
@@ -145,6 +148,7 @@ function App() {
 
       <main className="max-w-[1400px] mx-auto px-4 py-8">
         {currentTab === 'dashboard' && <DashboardTab />}
+        {currentTab === 'price_simulator' && <PriceSimulatorTab />}
         {currentTab === 'stock' && <StockTab />}
         {currentTab === 'movements' && <MovementsTab />}
         {currentTab === 'crm' && <CRMTab />}

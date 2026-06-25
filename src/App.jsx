@@ -63,6 +63,24 @@ function normalizeTextNodes(root) {
   });
 }
 
+function removeCurrencyIcons(root) {
+  if (!root || typeof document === 'undefined' || !root.querySelectorAll) return;
+
+  root.querySelectorAll('span.inline-flex svg').forEach((svg) => {
+    const parent = svg.parentElement;
+    const text = normalizeEnglishDigits(parent?.textContent || '');
+
+    if (parent?.tagName === 'SPAN' && /[0-9]/.test(text)) {
+      svg.remove();
+    }
+  });
+}
+
+function normalizeMoneyPresentation(root) {
+  normalizeTextNodes(root);
+  removeCurrencyIcons(root);
+}
+
 function StatusPage({ title, message, onLogout }) {
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4" dir="rtl">
@@ -102,7 +120,7 @@ function App() {
 
   useEffect(() => {
     const appRoot = document.getElementById('root') || document.body;
-    normalizeTextNodes(appRoot);
+    normalizeMoneyPresentation(appRoot);
 
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
@@ -111,6 +129,7 @@ function App() {
           if (nextValue !== mutation.target.nodeValue) {
             mutation.target.nodeValue = nextValue;
           }
+          removeCurrencyIcons(appRoot);
           return;
         }
 
@@ -119,9 +138,11 @@ function App() {
             const nextValue = normalizeEnglishDigits(node.nodeValue);
             if (nextValue !== node.nodeValue) node.nodeValue = nextValue;
           } else if (node.nodeType === Node.ELEMENT_NODE) {
-            normalizeTextNodes(node);
+            normalizeMoneyPresentation(node);
           }
         });
+
+        removeCurrencyIcons(appRoot);
       });
     });
 

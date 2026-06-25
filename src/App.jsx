@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   LayoutDashboard,
   Calculator,
@@ -31,6 +31,37 @@ import BetweenImportTab from './tabs/BetweenImportTab';
 import DashboardTab from './tabs/DashboardTab';
 import PriceSimulatorTab from './tabs/PriceSimulatorTab';
 import { PERMISSIONS, ROLE_LABELS, TAB_ACCESS } from './constants/ui';
+
+const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩';
+const PERSIAN_DIGITS = '۰۱۲۳۴۵۶۷۸۹';
+
+function normalizeEnglishDigits(value) {
+  return String(value || '')
+    .replace(/[٠-٩]/g, (digit) => String(ARABIC_DIGITS.indexOf(digit)))
+    .replace(/[۰-۹]/g, (digit) => String(PERSIAN_DIGITS.indexOf(digit)))
+    .replace(/\uFDFC/g, '')
+    .replace(/([0-9][0-9,.\s]*)\s*ر(?=\s|$)/g, '$1');
+}
+
+function normalizeTextNodes(root) {
+  if (!root || typeof document === 'undefined') return;
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  let currentNode = walker.nextNode();
+
+  while (currentNode) {
+    nodes.push(currentNode);
+    currentNode = walker.nextNode();
+  }
+
+  nodes.forEach((node) => {
+    const nextValue = normalizeEnglishDigits(node.nodeValue);
+    if (nextValue !== node.nodeValue) {
+      node.nodeValue = nextValue;
+    }
+  });
+}
 
 function StatusPage({ title, message, onLogout }) {
   return (
@@ -68,6 +99,35 @@ function App() {
     hasAccess,
     hasPermission,
   } = useAppData();
+
+  useEffect(() => {
+    const appRoot = document.getElementById('root') || document.body;
+    normalizeTextNodes(appRoot);
+
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'characterData') {
+          const nextValue = normalizeEnglishDigits(mutation.target.nodeValue);
+          if (nextValue !== mutation.target.nodeValue) {
+            mutation.target.nodeValue = nextValue;
+          }
+          return;
+        }
+
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === Node.TEXT_NODE) {
+            const nextValue = normalizeEnglishDigits(node.nodeValue);
+            if (nextValue !== node.nodeValue) node.nodeValue = nextValue;
+          } else if (node.nodeType === Node.ELEMENT_NODE) {
+            normalizeTextNodes(node);
+          }
+        });
+      });
+    });
+
+    observer.observe(appRoot, { childList: true, characterData: true, subtree: true });
+    return () => observer.disconnect();
+  }, [activeTab]);
 
   if (!authReady) {
     return (

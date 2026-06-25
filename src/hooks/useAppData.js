@@ -12,7 +12,7 @@ const ACTIVE_TAB_KEY = 'asparkle_active_tab';
 
 export default function useAppData() {
   const [activeTab, setActiveTabState] = useState(
-    () => localStorage.getItem(ACTIVE_TAB_KEY) || 'dashboard'
+    () => localStorage.getItem(ACTIVE_TAB_KEY) || 'ceo_executive'
   );
   const [currentUserRole, setCurrentUserRole] = useState(DEFAULT_ROLE);
   const [userProfile, setUserProfile] = useState(null);
@@ -167,7 +167,7 @@ export default function useAppData() {
   };
 
   const logout = () => {
-    localStorage.removeItem(ACTIVE_TAB_KEY); // عند تسجيل الخروج يرجع للداشبورد
+    localStorage.removeItem(ACTIVE_TAB_KEY); // عند تسجيل الخروج يرجع لصفحة الرئيس التنفيذي
     signOut(auth);
   };
 

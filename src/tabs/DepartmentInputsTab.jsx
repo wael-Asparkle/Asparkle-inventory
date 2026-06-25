@@ -26,7 +26,9 @@ const DEPARTMENT_LABELS = DEPARTMENTS.reduce((acc, item) => {
   return acc;
 }, {});
 
-const ROLE_DEPARTMENT = {
+const DEPARTMENT_IDS = DEPARTMENTS.map((item) => item.id);
+
+const ROLE_DEFAULT_DEPARTMENT = {
   [ROLES.MARKETING]: 'marketing',
   [ROLES.OPERATIONS]: 'operations',
   [ROLES.FINANCE]: 'finance',
@@ -35,8 +37,10 @@ const ROLE_DEPARTMENT = {
 
 const STATUS_OPTIONS = ['جيد', 'يحتاج متابعة', 'خطر'];
 
+const getToday = () => new Date().toISOString().slice(0, 10);
+
 const emptyForm = {
-  date: new Date().toISOString().slice(0, 10),
+  date: getToday(),
   department: 'marketing',
   metric: '',
   value: '',
@@ -56,9 +60,15 @@ const formatDateTime = (value) => {
   return new Date(value.seconds * 1000).toLocaleString('ar-SA');
 };
 
+const getUserDepartment = (role, userProfile) => {
+  const departmentFromProfile = userProfile?.department;
+  if (DEPARTMENT_IDS.includes(departmentFromProfile)) return departmentFromProfile;
+  return ROLE_DEFAULT_DEPARTMENT[role] || '';
+};
+
 export default function DepartmentInputsTab({ currentUserRole, userProfile }) {
   const role = normalizeRole(currentUserRole);
-  const userDepartment = ROLE_DEPARTMENT[role];
+  const userDepartment = getUserDepartment(role, userProfile);
   const canSeeAll = [ROLES.ADMIN, ROLES.CEO, ROLES.MANAGER].includes(role);
   const canCreate = role === ROLES.ADMIN || Boolean(userDepartment);
   const isReadOnlyLeader = [ROLES.CEO, ROLES.MANAGER].includes(role);
@@ -140,6 +150,7 @@ export default function DepartmentInputsTab({ currentUserRole, userProfile }) {
     setEditingId('');
     setForm({
       ...emptyForm,
+      date: getToday(),
       department: userDepartment || 'marketing',
     });
   };
@@ -148,7 +159,7 @@ export default function DepartmentInputsTab({ currentUserRole, userProfile }) {
     event.preventDefault();
     setMessage('');
 
-    if (!canCreate) {
+    if (!canCreate || isReadOnlyLeader) {
       setMessage('هذا الدور يملك صلاحية قراءة فقط.');
       return;
     }
@@ -159,8 +170,14 @@ export default function DepartmentInputsTab({ currentUserRole, userProfile }) {
     }
 
     const department = role === ROLES.ADMIN ? form.department : userDepartment;
-    if (!department) {
-      setMessage('لا يوجد قسم مرتبط بهذا المستخدم.');
+    if (!DEPARTMENT_IDS.includes(department)) {
+      setMessage('لا يوجد قسم صحيح مرتبط بهذا المستخدم. راجع صفحة المستخدمين والصلاحيات.');
+      return;
+    }
+
+    const numericValue = form.value === '' ? null : Number(form.value);
+    if (form.value !== '' && Number.isNaN(numericValue)) {
+      setMessage('القيمة الرقمية يجب أن تكون رقمًا صحيحًا.');
       return;
     }
 
@@ -168,7 +185,7 @@ export default function DepartmentInputsTab({ currentUserRole, userProfile }) {
       date: form.date,
       department,
       metric: form.metric.trim(),
-      value: form.value === '' ? null : Number(form.value),
+      value: numericValue,
       status: form.status,
       notes: form.notes.trim(),
       recommendation: form.recommendation.trim(),
@@ -188,6 +205,7 @@ export default function DepartmentInputsTab({ currentUserRole, userProfile }) {
             name: userProfile?.name || userProfile?.email || '',
             email: userProfile?.email || '',
             role,
+            department,
           },
           createdAt: serverTimestamp(),
         });
@@ -203,9 +221,10 @@ export default function DepartmentInputsTab({ currentUserRole, userProfile }) {
   };
 
   const startEdit = (item) => {
+    if (!canEditItem(item)) return;
     setEditingId(item.id);
     setForm({
-      date: item.date || new Date().toISOString().slice(0, 10),
+      date: item.date || getToday(),
       department: item.department || userDepartment || 'marketing',
       metric: item.metric || '',
       value: item.value === null || item.value === undefined ? '' : String(item.value),
@@ -234,9 +253,14 @@ export default function DepartmentInputsTab({ currentUserRole, userProfile }) {
     }
   };
 
-  const canEditItem = (item) => role === ROLES.ADMIN || item.enteredBy?.uid === userProfile?.uid;
+  const canEditItem = (item) => {
+    if (isReadOnlyLeader) return false;
+    if (role === ROLES.ADMIN) return true;
+    return item.enteredBy?.uid === userProfile?.uid && item.department === userDepartment;
+  };
+
   const canDeleteItem = role === ROLES.ADMIN;
-  const currentDepartmentLabel = userDepartment ? DEPARTMENT_LABELS[userDepartment] : 'كل الأقسام';
+  const currentDepartmentLabel = userDepartment ? DEPARTMENT_LABELS[userDepartment] : 'بدون قسم محدد';
 
   return (
     <div className="space-y-6">
@@ -271,7 +295,13 @@ export default function DepartmentInputsTab({ currentUserRole, userProfile }) {
         </div>
       )}
 
-      {canCreate && (
+      {!canSeeAll && !userDepartment && (
+        <div className="rounded-3xl border border-amber-100 bg-amber-50 p-5 text-sm font-bold text-amber-800 leading-7">
+          لا يوجد قسم مرتبط بحسابك. راجع صفحة المستخدمين والصلاحيات لإضافة القسم المناسب.
+        </div>
+      )}
+
+      {canCreate && !isReadOnlyLeader && (
         <form onSubmit={handleSubmit} className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 space-y-5">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-lg font-black text-slate-800">

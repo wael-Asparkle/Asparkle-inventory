@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   LayoutDashboard,
   Calculator,
+  ClipboardList,
   Crown,
   PackageOpen,
   ShoppingBag,
@@ -17,6 +18,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import useAppData from './hooks/useAppData';
 import LoginPage from './components/LoginPage';
 import CEOExecutiveTab from './tabs/CEOExecutiveTab';
+import DepartmentInputsTab from './tabs/DepartmentInputsTab';
 import StockTab from './tabs/StockTab';
 import MovementsTab from './tabs/MovementsTab';
 import OrdersTab from './tabs/OrdersTab';
@@ -89,6 +91,7 @@ function App() {
 
   const mainNavItems = [
     { id: 'ceo_executive', label: 'الرئيس التنفيذي', icon: <Crown size={18} />, allowedRoles: TAB_ACCESS.ceo_executive },
+    { id: 'department_inputs', label: 'إدخالات الأقسام', icon: <ClipboardList size={18} />, allowedRoles: TAB_ACCESS.department_inputs },
     { id: 'dashboard', label: 'لوحة التحكم', icon: <LayoutDashboard size={18} />, allowedRoles: TAB_ACCESS.dashboard },
     { id: 'orders', label: 'الطلبات', icon: <ShoppingBag size={18} />, allowedRoles: TAB_ACCESS.orders },
     { id: 'stock', label: 'المخزون', icon: <PackageOpen size={18} />, allowedRoles: TAB_ACCESS.stock },
@@ -225,6 +228,9 @@ function App() {
 
       <main className="max-w-[1400px] mx-auto px-4 py-8">
         {currentTab === 'ceo_executive' && <CEOExecutiveTab />}
+        {currentTab === 'department_inputs' && (
+          <DepartmentInputsTab currentUserRole={currentUserRole} userProfile={userProfile} />
+        )}
         {currentTab === 'dashboard' && <DashboardTab />}
         {currentTab === 'orders' && <OrdersTab />}
         {currentTab === 'price_simulator' && <PriceSimulatorTab />}

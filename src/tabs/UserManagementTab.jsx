@@ -15,6 +15,26 @@ const EDITABLE_ROLES = [
   ROLES.VIEWER,
 ];
 
+const DEPARTMENTS = [
+  { id: '', label: 'بدون قسم محدد' },
+  { id: 'marketing', label: 'التسويق' },
+  { id: 'operations', label: 'العمليات' },
+  { id: 'finance', label: 'المالية' },
+  { id: 'customer_service', label: 'خدمة العملاء' },
+];
+
+const ROLE_DEFAULT_DEPARTMENT = {
+  [ROLES.MARKETING]: 'marketing',
+  [ROLES.OPERATIONS]: 'operations',
+  [ROLES.FINANCE]: 'finance',
+  [ROLES.CUSTOMER_SERVICE]: 'customer_service',
+};
+
+const DEPARTMENT_LABELS = DEPARTMENTS.reduce((acc, item) => {
+  acc[item.id] = item.label;
+  return acc;
+}, {});
+
 const ROLE_ACCESS_SUMMARY = {
   [ROLES.ADMIN]: {
     title: 'يرى كل النظام',
@@ -24,12 +44,12 @@ const ROLE_ACCESS_SUMMARY = {
   [ROLES.CEO]: {
     title: 'متابعة تنفيذية قراءة فقط',
     items: ['الرئيس التنفيذي', 'لوحة التحكم', 'إدخالات كل الأقسام'],
-    note: 'يرى الإدخالات والتقارير بدون صلاحية حذف أو تعديل إدخالات الآخرين.',
+    note: 'يرى إدخالات كل الأقسام بدون إضافة أو تعديل أو حذف.',
   },
   [ROLES.MANAGER]: {
     title: 'إدارة ومتابعة بدون صفحات خطيرة',
     items: ['لوحة التحكم', 'الرئيس التنفيذي', 'إدخالات كل الأقسام', 'المخزون', 'الحركات', 'الطلبات', 'العملاء'],
-    note: 'لا يرى إدارة البيانات أو الاستيراد أو إدارة المستخدمين، ولا يملك حذف إدخالات الأقسام.',
+    note: 'يرى إدخالات كل الأقسام قراءة فقط، ولا يملك حذف إدخالات الأقسام.',
   },
   [ROLES.OPERATIONS]: {
     title: 'صلاحيات العمليات والمستودع',
@@ -58,8 +78,9 @@ const ROLE_ACCESS_SUMMARY = {
   },
 };
 
-const RoleAccessSummary = ({ role }) => {
+const RoleAccessSummary = ({ role, department }) => {
   const summary = ROLE_ACCESS_SUMMARY[normalizeRole(role)] || ROLE_ACCESS_SUMMARY[ROLES.VIEWER];
+  const departmentLabel = DEPARTMENT_LABELS[department || ''] || 'بدون قسم محدد';
 
   return (
     <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
@@ -72,6 +93,7 @@ const RoleAccessSummary = ({ role }) => {
         ))}
       </div>
       <div className="mt-2 text-[11px] font-bold text-slate-400 leading-5">{summary.note}</div>
+      <div className="mt-2 text-[11px] font-black text-indigo-600 leading-5">القسم المسجل للمستخدم: {departmentLabel}</div>
     </div>
   );
 };
@@ -88,11 +110,13 @@ export default function UserManagementTab({ currentUserUid }) {
       (snapshot) => {
         const rows = snapshot.docs.map((item) => {
           const data = item.data();
+          const role = normalizeRole(data.role);
           return {
             uid: item.id,
             name: data.name || '',
             email: data.email || '',
-            role: normalizeRole(data.role),
+            role,
+            department: data.department || ROLE_DEFAULT_DEPARTMENT[role] || '',
             isActive: data.isActive === true,
           };
         });
@@ -124,6 +148,15 @@ export default function UserManagementTab({ currentUserUid }) {
     }
   };
 
+  const handleRoleChange = async (userItem, newRole) => {
+    const nextRole = normalizeRole(newRole);
+    const defaultDepartment = ROLE_DEFAULT_DEPARTMENT[nextRole] || userItem.department || '';
+    await saveUser(userItem, {
+      role: nextRole,
+      department: defaultDepartment,
+    });
+  };
+
   const toggleUserActivation = async (userItem) => {
     if (userItem.isActive) {
       const userName = userItem.name || userItem.email || 'هذا المستخدم';
@@ -143,13 +176,13 @@ export default function UserManagementTab({ currentUserUid }) {
           </div>
           <div>
             <h1 className="text-2xl font-black text-slate-800">المستخدمون والصلاحيات</h1>
-            <p className="text-sm text-slate-400 mt-1">تعديل الدور وحالة التفعيل للمستخدمين الموجودين في Firestore.</p>
+            <p className="text-sm text-slate-400 mt-1">تعديل الدور والقسم وحالة التفعيل للمستخدمين الموجودين في Firestore.</p>
           </div>
         </div>
       </div>
 
       <div className="bg-amber-50 border border-amber-100 rounded-3xl p-5 text-sm text-amber-800 leading-7">
-        إنشاء الحساب الجديد يتم من Firebase Authentication أولًا، ثم يتم إنشاء مستند له داخل collection باسم users.
+        إنشاء الحساب الجديد يتم من Firebase Authentication أولًا، ثم يتم إنشاء مستند له داخل collection باسم users. حقل القسم يُستخدم لتحديد إدخالات القسم التي يستطيع المستخدم رؤيتها أو إضافتها.
       </div>
 
       {message && (
@@ -177,7 +210,7 @@ export default function UserManagementTab({ currentUserUid }) {
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
                   <th className="text-right px-6 py-4 font-black">المستخدم</th>
-                  <th className="text-right px-6 py-4 font-black">الدور وما يستطيع رؤيته</th>
+                  <th className="text-right px-6 py-4 font-black">الدور والقسم وما يستطيع رؤيته</th>
                   <th className="text-right px-6 py-4 font-black">الحالة والإجراء</th>
                 </tr>
               </thead>
@@ -197,21 +230,41 @@ export default function UserManagementTab({ currentUserUid }) {
                         <div className="text-slate-400 font-bold mt-1">{item.email || 'بدون إيميل'}</div>
                       </td>
 
-                      <td className="px-6 py-4 min-w-[360px]">
-                        <select
-                          value={item.role}
-                          disabled={isSaving || isCurrentUser}
-                          onChange={(event) => saveUser(item, { role: event.target.value })}
-                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:opacity-60"
-                        >
-                          {EDITABLE_ROLES.map((role) => (
-                            <option key={role} value={role}>{ROLE_LABELS[role]}</option>
-                          ))}
-                        </select>
+                      <td className="px-6 py-4 min-w-[420px]">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                          <label className="space-y-2">
+                            <span className="text-[11px] font-black text-slate-400">الدور</span>
+                            <select
+                              value={item.role}
+                              disabled={isSaving || isCurrentUser}
+                              onChange={(event) => handleRoleChange(item, event.target.value)}
+                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:opacity-60"
+                            >
+                              {EDITABLE_ROLES.map((role) => (
+                                <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <label className="space-y-2">
+                            <span className="text-[11px] font-black text-slate-400">القسم</span>
+                            <select
+                              value={item.department || ''}
+                              disabled={isSaving || isCurrentUser}
+                              onChange={(event) => saveUser(item, { department: event.target.value })}
+                              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:opacity-60"
+                            >
+                              {DEPARTMENTS.map((department) => (
+                                <option key={department.id || 'none'} value={department.id}>{department.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+
                         {isCurrentUser && (
                           <div className="text-[11px] font-bold text-slate-400 mt-2">لا يمكن تعديل حسابك الحالي من هنا.</div>
                         )}
-                        <RoleAccessSummary role={item.role} />
+                        <RoleAccessSummary role={item.role} department={item.department} />
                       </td>
 
                       <td className="px-6 py-4 min-w-[220px]">

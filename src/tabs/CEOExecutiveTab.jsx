@@ -10,7 +10,7 @@ const MAX_HEALTHY_CPA = 40;
 
 const englishFormatter = new Intl.NumberFormat('en-US');
 const fmt = (value) => englishFormatter.format(Number(value || 0));
-const fmtMoney = (value) => `${fmt(Math.round(Number(value || 0)))} ر`;
+const fmtMoney = (value) => fmt(Math.round(Number(value || 0)));
 const fmtRatio = (value) => (Number.isFinite(value) ? Number(value).toFixed(2) : '—');
 
 const getSaudiDate = () => new Intl.DateTimeFormat('en-CA', {
